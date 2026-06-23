@@ -8,6 +8,7 @@ import type { TrackMetadata, TrackAvailability } from "@/types/api";
 import { usePreview } from "@/hooks/usePreview";
 import { AvailabilityLinks, hasAvailabilityLinks } from "./AvailabilityLinks";
 import { buildClickableArtists, getClickableArtistKey } from "@/lib/artist-links";
+import { useState } from "react";
 interface TrackListProps {
     tracks: TrackMetadata[];
     searchQuery: string;
@@ -36,6 +37,7 @@ interface TrackListProps {
     downloadingCoverTrack?: string | null;
     onToggleTrack: (id: string) => void;
     onToggleSelectAll: (tracks: TrackMetadata[]) => void;
+    onSelectTrackRange?: (ids: string[], select: boolean) => void;
     onDownloadTrack: (id: string, name: string, artists: string, albumName: string, spotifyId?: string, folderName?: string, durationMs?: number, position?: number, albumArtist?: string, releaseDate?: string, coverUrl?: string, spotifyTrackNumber?: number, spotifyDiscNumber?: number, spotifyTotalTracks?: number, spotifyTotalDiscs?: number, copyright?: string, publisher?: string) => void;
     onDownloadLyrics?: (spotifyId: string, name: string, artists: string, albumName: string, folderName?: string, isArtistDiscography?: boolean, position?: number, albumArtist?: string, releaseDate?: string, discNumber?: number) => void;
     onCheckAvailability?: (spotifyId: string) => void;
@@ -53,8 +55,9 @@ interface TrackListProps {
     }) => void;
     onTrackClick?: (track: TrackMetadata) => void;
 }
-export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloadedTracks, failedTracks, skippedTracks, downloadingTrack, isDownloading, currentPage, itemsPerPage, showCheckboxes = false, hideAlbumColumn = false, folderName, isArtistDiscography = false, downloadedLyrics, failedLyrics, skippedLyrics, downloadingLyricsTrack, checkingAvailabilityTrack, availabilityMap, downloadedCovers, failedCovers, skippedCovers, downloadingCoverTrack, onToggleTrack, onToggleSelectAll, onDownloadTrack, onDownloadLyrics, onCheckAvailability, onDownloadCover, onPageChange, onAlbumClick, onArtistClick, onTrackClick, }: TrackListProps) {
+export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloadedTracks, failedTracks, skippedTracks, downloadingTrack, isDownloading, currentPage, itemsPerPage, showCheckboxes = false, hideAlbumColumn = false, folderName, isArtistDiscography = false, downloadedLyrics, failedLyrics, skippedLyrics, downloadingLyricsTrack, checkingAvailabilityTrack, availabilityMap, downloadedCovers, failedCovers, skippedCovers, downloadingCoverTrack, onToggleTrack, onToggleSelectAll, onSelectTrackRange, onDownloadTrack, onDownloadLyrics, onCheckAvailability, onDownloadCover, onPageChange, onAlbumClick, onArtistClick, onTrackClick, }: TrackListProps) {
     const { playPreview, loadingPreview, playingTrack } = usePreview();
+    const [lastTrackIndex, setLastTrackIndex] = useState<number | null>(null);
     const getTrackKey = (track: TrackMetadata) => track.spotify_id || track.external_urls || `${track.name}-${track.album_name}-${track.disc_number ?? 1}-${track.track_number}`;
     let filteredTracks = tracks.filter((track) => {
         if (!searchQuery)
@@ -220,20 +223,39 @@ export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloa
             </tr>
           </thead>
           <tbody>
-            {paginatedTracks.map((track, index) => (<tr key={getTrackKey(track)} className="border-b transition-colors hover:bg-muted/50">
+            {paginatedTracks.map((track, index) => {
+            const handleRowSelect = (event: React.MouseEvent) => {
+                if (!showCheckboxes || !track.spotify_id)
+                    return;
+                if (event.shiftKey && lastTrackIndex !== null && onSelectTrackRange) {
+                    const start = Math.min(lastTrackIndex, index);
+                    const end = Math.max(lastTrackIndex, index);
+                    const rangeIds = paginatedTracks
+                        .slice(start, end + 1)
+                        .map(t => t.spotify_id)
+                        .filter((id): id is string => Boolean(id));
+                    const select = !rangeIds.every(id => selectedTracks.includes(id));
+                    onSelectTrackRange(rangeIds, select);
+                }
+                else {
+                    onToggleTrack(track.spotify_id);
+                    setLastTrackIndex(index);
+                }
+            };
+            return (<tr key={getTrackKey(track)} onClick={showCheckboxes ? handleRowSelect : undefined} className={`border-b transition-colors hover:bg-muted/50 ${showCheckboxes && track.spotify_id ? "cursor-pointer select-none" : ""}`}>
               {showCheckboxes && (<td className="p-4 align-middle">
-                {track.spotify_id && (<Checkbox checked={selectedTracks.includes(track.spotify_id)} onCheckedChange={() => onToggleTrack(track.spotify_id!)}/>)}
+                {track.spotify_id && (<Checkbox checked={selectedTracks.includes(track.spotify_id)} className="pointer-events-none"/>)}
               </td>)}
               <td className="p-4 align-middle text-sm text-muted-foreground">
                 <div className="flex flex-col items-center gap-0.5">
                   <span>{startIndex + index + 1}</span>
                   {track.status && (track.status === "UP" || track.status === "DOWN" || track.status === "NEW") && (<span className={`text-xs ${track.status === "UP"
-                    ? "text-green-500"
-                    : track.status === "DOWN"
-                        ? "text-red-500"
-                        : track.status === "NEW"
-                            ? "text-blue-500"
-                            : ""}`}>
+                        ? "text-green-500"
+                        : track.status === "DOWN"
+                            ? "text-red-500"
+                            : track.status === "NEW"
+                                ? "text-blue-500"
+                                : ""}`}>
                     {track.status === "NEW" ? "●" : track.status === "UP" ? "▲" : "▼"}
                   </span>)}
                 </div>
@@ -243,7 +265,7 @@ export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloa
                   {track.images && (<img src={track.images} alt={track.name} className="w-10 h-10 rounded object-cover"/>)}
                   <div className="flex flex-col">
                     <div className="flex items-center gap-2">
-                      {onTrackClick ? (<button type="button" className="font-medium cursor-pointer rounded-sm bg-transparent p-0 text-left text-inherit hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60" onClick={() => onTrackClick(track)}>
+                      {onTrackClick ? (<button type="button" className="font-medium cursor-pointer rounded-sm bg-transparent p-0 text-left text-inherit hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60" onClick={(event) => { event.stopPropagation(); onTrackClick(track); }}>
                         {track.name}
                       </button>) : (<span className="font-medium">{track.name}</span>)}
                       {track.is_explicit && (<span className="inline-flex items-center justify-center bg-red-600 text-white text-[10px] h-4 w-4 rounded shrink-0" title="Explicit">E</span>)}
@@ -252,31 +274,37 @@ export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloa
                     </div>
                     <span className="text-sm text-muted-foreground">
                       {(() => {
-                const clickableArtists = buildClickableArtists(track.artists, track.artists_data, track.artist_id, track.artist_url);
-                if (clickableArtists.length === 0) {
-                    return track.artists;
-                }
-                return clickableArtists.map((artist, i) => (<span key={getClickableArtistKey(artist)}>
-                            {onArtistClick ? (<button type="button" className="cursor-pointer rounded-sm bg-transparent p-0 text-inherit hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60" onClick={() => onArtistClick({
-                            id: artist.id,
-                            name: artist.name,
-                            external_urls: artist.external_urls,
-                        })}>
+                    const clickableArtists = buildClickableArtists(track.artists, track.artists_data, track.artist_id, track.artist_url);
+                    if (clickableArtists.length === 0) {
+                        return track.artists;
+                    }
+                    return clickableArtists.map((artist, i) => (<span key={getClickableArtistKey(artist)}>
+                            {onArtistClick ? (<button type="button" className="cursor-pointer rounded-sm bg-transparent p-0 text-inherit hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60" onClick={(event) => {
+                                event.stopPropagation();
+                                onArtistClick({
+                                    id: artist.id,
+                                    name: artist.name,
+                                    external_urls: artist.external_urls,
+                                });
+                            }}>
                                 {artist.name}
                               </button>) : (artist.name)}
                             {i < clickableArtists.length - 1 && ", "}
                           </span>));
-            })()}
+                })()}
                     </span>
                   </div>
                 </div>
               </td>
               {!hideAlbumColumn && (<td className="p-4 align-middle text-sm text-muted-foreground hidden md:table-cell">
-                {onAlbumClick && track.album_id && track.album_url ? (<button type="button" className="cursor-pointer rounded-sm bg-transparent p-0 text-left text-inherit hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60" onClick={() => onAlbumClick({
-                        id: track.album_id!,
-                        name: track.album_name,
-                        external_urls: track.album_url!,
-                    })}>
+                {onAlbumClick && track.album_id && track.album_url ? (<button type="button" className="cursor-pointer rounded-sm bg-transparent p-0 text-left text-inherit hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60" onClick={(event) => {
+                            event.stopPropagation();
+                            onAlbumClick({
+                                id: track.album_id!,
+                                name: track.album_name,
+                                external_urls: track.album_url!,
+                            });
+                        }}>
                   {track.album_name}
                 </button>) : (track.album_name)}
               </td>)}
@@ -287,7 +315,7 @@ export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloa
                 {track.plays ? formatPlays(track.plays) : ""}
               </td>
               <td className="p-4 align-middle text-center">
-                <div className="flex items-center justify-center gap-1">
+                <div className="flex items-center justify-center gap-1" onClick={(event) => event.stopPropagation()}>
                   {track.spotify_id && (<Tooltip>
                     <TooltipTrigger asChild>
                       <Button onClick={() => onDownloadTrack(track.spotify_id!, track.name, track.artists, track.album_name, track.spotify_id, folderName, track.duration_ms, startIndex + index + 1, track.album_artist, track.release_date, track.images, track.track_number, track.disc_number, track.total_tracks, track.total_discs, track.copyright, track.publisher)} size="icon" disabled={isDownloading || downloadingTrack === track.spotify_id}>
@@ -321,9 +349,9 @@ export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloa
                   {track.images && onDownloadCover && (<Tooltip>
                     <TooltipTrigger asChild>
                       <Button onClick={() => {
-                    const trackId = track.spotify_id || `${track.name}-${track.artists}`;
-                    onDownloadCover(track.images, track.name, track.artists, track.album_name, folderName, isArtistDiscography, startIndex + index + 1, trackId, track.album_artist, track.release_date, track.disc_number);
-                }} size="icon" variant="outline" disabled={downloadingCoverTrack === (track.spotify_id || `${track.name}-${track.artists}`)}>
+                        const trackId = track.spotify_id || `${track.name}-${track.artists}`;
+                        onDownloadCover(track.images, track.name, track.artists, track.album_name, folderName, isArtistDiscography, startIndex + index + 1, trackId, track.album_artist, track.release_date, track.disc_number);
+                    }} size="icon" variant="outline" disabled={downloadingCoverTrack === (track.spotify_id || `${track.name}-${track.artists}`)}>
                         {downloadingCoverTrack === (track.spotify_id || `${track.name}-${track.artists}`) ? (<Spinner />) : skippedCovers?.has(track.spotify_id || `${track.name}-${track.artists}`) ? (<FileCheck className="h-4 w-4 text-yellow-500"/>) : downloadedCovers?.has(track.spotify_id || `${track.name}-${track.artists}`) ? (<CheckCircle className="h-4 w-4 text-green-500"/>) : failedCovers?.has(track.spotify_id || `${track.name}-${track.artists}`) ? (<XCircle className="h-4 w-4 text-red-500"/>) : (<ImageDown className="h-4 w-4"/>)}
                       </Button>
                     </TooltipTrigger>
@@ -343,7 +371,8 @@ export function TrackList({ tracks, searchQuery, sortBy, selectedTracks, downloa
                   </Tooltip>)}
                 </div>
               </td>
-            </tr>))}
+            </tr>);
+        })}
           </tbody>
         </table>
       </div>

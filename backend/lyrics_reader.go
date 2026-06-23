@@ -275,3 +275,77 @@ func SelectLyricsFiles(ctx context.Context) ([]string, error) {
 		},
 	})
 }
+
+func SelectLyricsFolder(ctx context.Context) (string, error) {
+	return runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{
+		Title: "Select Folder with Lyrics or Audio Files",
+	})
+}
+
+var lyricsFolderExtensions = map[string]bool{
+	".lrc": true, ".txt": true,
+	".flac": true, ".mp3": true, ".m4a": true,
+	".aac": true, ".opus": true, ".ogg": true,
+}
+
+func ScanLyricsFolder(dir string) ([]string, error) {
+	dir = NormalizePath(dir)
+	if dir == "" {
+		return nil, fmt.Errorf("folder path is required")
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("not a valid folder: %s", dir)
+	}
+
+	var files []string
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil || info.IsDir() {
+			return nil
+		}
+		if lyricsFolderExtensions[strings.ToLower(filepath.Ext(path))] {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, nil
+}
+
+type SaveLyricsResult struct {
+	Path    string `json:"path"`
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+func SaveLyrics(filePath string, lyrics string) (*SaveLyricsResult, error) {
+	result := &SaveLyricsResult{Path: filePath}
+
+	if !fileExists(filePath) {
+		result.Error = "file does not exist"
+		return result, nil
+	}
+
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	case ".lrc", ".txt":
+		content := lyrics
+		if !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+			result.Error = fmt.Sprintf("failed to write file: %v", err)
+			return result, nil
+		}
+	case ".flac", ".mp3", ".m4a":
+		if err := EmbedLyricsOnlyUniversal(filePath, lyrics); err != nil {
+			result.Error = err.Error()
+			return result, nil
+		}
+	default:
+		result.Error = fmt.Sprintf("saving is not supported for %s files", ext)
+		return result, nil
+	}
+
+	result.Success = true
+	return result, nil
+}

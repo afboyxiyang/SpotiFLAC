@@ -11,7 +11,6 @@ import { SearchSpotify, SearchSpotifyByType } from "../../wailsjs/go/main/App";
 import { backend } from "../../wailsjs/go/models";
 import { cn } from "@/lib/utils";
 import { useTypingEffect } from "@/hooks/useTypingEffect";
-import { getSettings, type Settings } from "@/lib/settings";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 const FETCH_PLACEHOLDERS = [
@@ -28,202 +27,6 @@ const SEARCH_PLACEHOLDERS = [
     "Joji",
     "Die For You",
 ];
-const REGIONS = [
-    "AD",
-    "AE",
-    "AG",
-    "AL",
-    "AM",
-    "AO",
-    "AR",
-    "AT",
-    "AU",
-    "AZ",
-    "BA",
-    "BB",
-    "BD",
-    "BE",
-    "BF",
-    "BG",
-    "BH",
-    "BI",
-    "BJ",
-    "BN",
-    "BO",
-    "BR",
-    "BS",
-    "BT",
-    "BW",
-    "BZ",
-    "CA",
-    "CD",
-    "CG",
-    "CH",
-    "CI",
-    "CL",
-    "CM",
-    "CO",
-    "CR",
-    "CV",
-    "CW",
-    "CY",
-    "CZ",
-    "DE",
-    "DJ",
-    "DK",
-    "DM",
-    "DO",
-    "DZ",
-    "EC",
-    "EE",
-    "EG",
-    "ES",
-    "ET",
-    "FI",
-    "FJ",
-    "FM",
-    "FR",
-    "GA",
-    "GB",
-    "GD",
-    "GE",
-    "GH",
-    "GM",
-    "GN",
-    "GQ",
-    "GR",
-    "GT",
-    "GW",
-    "GY",
-    "HK",
-    "HN",
-    "HR",
-    "HT",
-    "HU",
-    "ID",
-    "IE",
-    "IL",
-    "IN",
-    "IQ",
-    "IS",
-    "IT",
-    "JM",
-    "JO",
-    "JP",
-    "KE",
-    "KG",
-    "KH",
-    "KI",
-    "KM",
-    "KN",
-    "KR",
-    "KW",
-    "KZ",
-    "LA",
-    "LB",
-    "LC",
-    "LI",
-    "LK",
-    "LR",
-    "LS",
-    "LT",
-    "LU",
-    "LV",
-    "LY",
-    "MA",
-    "MC",
-    "MD",
-    "ME",
-    "MG",
-    "MH",
-    "MK",
-    "ML",
-    "MN",
-    "MO",
-    "MR",
-    "MT",
-    "MU",
-    "MV",
-    "MW",
-    "MX",
-    "MY",
-    "MZ",
-    "NA",
-    "NE",
-    "NG",
-    "NI",
-    "NL",
-    "NO",
-    "NP",
-    "NR",
-    "NZ",
-    "OM",
-    "PA",
-    "PE",
-    "PG",
-    "PH",
-    "PK",
-    "PL",
-    "PS",
-    "PT",
-    "PW",
-    "PY",
-    "QA",
-    "RO",
-    "RS",
-    "RW",
-    "SA",
-    "SB",
-    "SC",
-    "SE",
-    "SG",
-    "SI",
-    "SK",
-    "SL",
-    "SM",
-    "SN",
-    "SR",
-    "ST",
-    "SV",
-    "SZ",
-    "TD",
-    "TG",
-    "TH",
-    "TJ",
-    "TL",
-    "TN",
-    "TO",
-    "TR",
-    "TT",
-    "TV",
-    "TW",
-    "TZ",
-    "UA",
-    "UG",
-    "US",
-    "UY",
-    "UZ",
-    "VC",
-    "VE",
-    "VN",
-    "VU",
-    "WS",
-    "XK",
-    "ZA",
-    "ZM",
-    "ZW",
-];
-const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
-const getRegionName = (code: string) => {
-    try {
-        if (code === "XK")
-            return "Kosovo";
-        return regionNames.of(code) || code;
-    }
-    catch (e) {
-        return code;
-    }
-};
 type ResultTab = "tracks" | "albums" | "artists" | "playlists";
 const RECENT_SEARCHES_KEY = "spotiflac_recent_searches";
 const MAX_RECENT_SEARCHES = 8;
@@ -240,13 +43,10 @@ interface SearchBarProps {
     hasResult: boolean;
     searchMode: boolean;
     onSearchModeChange: (isSearch: boolean) => void;
-    region: string;
-    onRegionChange: (region: string) => void;
 }
-export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, history, onHistorySelect, onHistoryRemove, hasResult, searchMode, onSearchModeChange, region, onRegionChange, }: SearchBarProps) {
+export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, history, onHistorySelect, onHistoryRemove, hasResult, searchMode, onSearchModeChange, }: SearchBarProps) {
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<backend.SearchResponse | null>(null);
-    const [showRegionSelector, setShowRegionSelector] = useState(() => getSettings().linkResolver === "songlink");
     const [resultFilter, setResultFilter] = useState("");
     const [sortOrders, setSortOrders] = useState<Record<ResultTab, string>>({
         tracks: "default",
@@ -280,18 +80,6 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         catch (error) {
             console.error("Failed to load recent searches:", error);
         }
-    }, []);
-    useEffect(() => {
-        const syncRegionVisibility = (settings?: Partial<Settings>) => {
-            const resolver = settings?.linkResolver ?? getSettings().linkResolver;
-            setShowRegionSelector(resolver === "songlink");
-        };
-        syncRegionVisibility();
-        const handleSettingsUpdate = (event: Event) => {
-            syncRegionVisibility((event as CustomEvent<Partial<Settings>>).detail);
-        };
-        window.addEventListener("settingsUpdated", handleSettingsUpdate);
-        return () => window.removeEventListener("settingsUpdated", handleSettingsUpdate);
     }, []);
     const saveRecentSearch = (query: string) => {
         const trimmed = query.trim();
@@ -603,27 +391,6 @@ export function SearchBar({ url, loading, onUrlChange, onFetch, onFetchUrl, hist
         </div>
 
         {!searchMode && (<>
-            {showRegionSelector && (<Select value={region} onValueChange={onRegionChange}>
-                <SelectTrigger className="w-22.5 shrink-0">
-                  <SelectValue placeholder="Region">
-                    <span className="flex items-center gap-1.5">
-                      <img src={`/assets/flags/${region.toLowerCase()}.svg`} alt={region} className="h-3 w-4 rounded-[1px] object-cover shrink-0"/>
-                      {region}
-                    </span>
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent className="max-h-[300px]">
-                  {REGIONS.map((r) => (<SelectItem key={r} value={r} textValue={r}>
-                      <span className="flex items-center gap-1.5">
-                        <img src={`/assets/flags/${r.toLowerCase()}.svg`} alt="" className="h-3 w-4 rounded-[1px] object-cover shrink-0"/>
-                        {r}{" "}
-                        <span className="text-muted-foreground">
-                          ({getRegionName(r)})
-                        </span>
-                      </span>
-                    </SelectItem>))}
-                </SelectContent>
-              </Select>)}
             <Button onClick={handleFetchWithValidation} disabled={loading}>
               {loading ? (<>
                   <Spinner />

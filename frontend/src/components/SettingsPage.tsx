@@ -6,10 +6,11 @@ import { InputWithContext } from "@/components/ui/input-with-context";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger, } from "@/components/ui/tooltip";
-import { FolderOpen, Save, RotateCcw, Info, ArrowRight, MonitorCog, FolderCog, Router, FolderLock, Plus, Trash2, ExternalLink, PlugZap, Download, Tags } from "lucide-react";
+import { FolderOpen, Save, RotateCcw, Info, ArrowRight, MonitorCog, FolderCog, Router, FolderLock, Plus, Trash2, ExternalLink, PlugZap, Download, Tags, FileSignature } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { getSettings, getSettingsWithDefaults, saveSettings, resetToDefaultSettings, applyThemeMode, applyFont, getFontOptions, parseGoogleFontUrl, loadGoogleFontUrl, loadCustomFonts, saveCustomFonts, FOLDER_PRESETS, FILENAME_PRESETS, TEMPLATE_VARIABLES, sanitizeAutoOrder, type Settings as SettingsType, type FontFamily, type CustomFontFamily, type FolderPreset, type FilenamePreset, type ExistingFileCheckMode, } from "@/lib/settings";
+import { getSettings, getSettingsWithDefaults, saveSettings, resetToDefaultSettings, applyThemeMode, applyFont, getFontOptions, parseGoogleFontUrl, loadGoogleFontUrl, loadCustomFonts, saveCustomFonts, TEMPLATE_VARIABLES, DEFAULT_SETTINGS, sanitizeAutoOrder, type Settings as SettingsType, type FontFamily, type CustomFontFamily, type ExistingFileCheckMode, } from "@/lib/settings";
+import { FormatEditor } from "@/components/FormatEditor";
 import { themes, applyTheme } from "@/lib/themes";
 import { SelectFolder, OpenConfigFolder, CheckCustomTidalAPI, CheckCustomQobuzAPI } from "../../wailsjs/go/main/App";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
@@ -179,7 +180,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
     const handleQobuzQualityChange = (value: "6" | "7" | "27") => {
         setTempSettings((prev) => ({ ...prev, qobuzQuality: value }));
     };
-    const handleAmazonQualityChange = (value: "16" | "24") => {
+    const handleAmazonQualityChange = (value: "16" | "24" | "atmos") => {
         setTempSettings((prev) => ({ ...prev, amazonQuality: value }));
     };
     const handleAutoQualityChange = async (value: "16" | "24") => {
@@ -261,7 +262,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
             toast.error(`Failed to check Qobuz-DL instance: ${error}`);
         }
     };
-    const [activeTab, setActiveTab] = useState<"general" | "download" | "files" | "metadata" | "status">("general");
+    const [activeTab, setActiveTab] = useState<"general" | "download" | "naming" | "files" | "metadata" | "status">("general");
     return (<div className="space-y-4 h-full flex flex-col">
       <div className="flex items-center justify-between shrink-0">
         <h1 className="text-2xl font-bold">Settings</h1>
@@ -297,9 +298,13 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
           <Download className="h-4 w-4"/>
           Download
         </Button>
+        <Button variant={activeTab === "naming" ? "default" : "ghost"} size="sm" onClick={() => setActiveTab("naming")} className="rounded-b-none gap-2">
+          <FileSignature className="h-4 w-4"/>
+          Naming
+        </Button>
         <Button variant={activeTab === "files" ? "default" : "ghost"} size="sm" onClick={() => setActiveTab("files")} className="rounded-b-none gap-2">
           <FolderCog className="h-4 w-4"/>
-          Files
+          File Management
         </Button>
         <Button variant={activeTab === "metadata" ? "default" : "ghost"} size="sm" onClick={() => setActiveTab("metadata")} className="rounded-b-none gap-2">
           <Tags className="h-4 w-4"/>
@@ -312,8 +317,8 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
       </div>
 
       <div className="flex-1 overflow-y-auto pt-4">
-        {activeTab === "general" && (<div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            <div className="space-y-4">
+        {activeTab === "general" && (<div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="space-y-4 md:pr-8 md:border-r border-border">
               <div className="space-y-2">
                 <Label htmlFor="theme-mode">Mode</Label>
                 <Select value={tempSettings.themeMode} onValueChange={(value: "auto" | "light" | "dark") => setTempSettings((prev) => ({ ...prev, themeMode: value }))}>
@@ -348,9 +353,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                   </SelectContent>
                 </Select>
               </div>
-            </div>
 
-            <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="font">Font</Label>
                 <div className="flex flex-wrap items-center gap-2">
@@ -396,6 +399,22 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                 <Label htmlFor="sfx-enabled" className="cursor-pointer text-sm font-normal">
                   Sound Effects
                 </Label>
+              </div>
+            </div>
+
+            <div className="space-y-4 md:pl-8">
+              <div className="space-y-2">
+                <Label htmlFor="download-path">Download Path</Label>
+                <div className="flex gap-2">
+                  <InputWithContext id="download-path" value={tempSettings.downloadPath} onChange={(e) => setTempSettings((prev) => ({
+                ...prev,
+                downloadPath: e.target.value,
+            }))} placeholder="C:\Users\YourUsername\Music"/>
+                  <Button type="button" onClick={handleBrowseFolder} className="gap-1.5">
+                    <FolderOpen className="h-4 w-4"/>
+                    Browse
+                  </Button>
+                </div>
               </div>
             </div>
           </div>)}
@@ -633,6 +652,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                       <SelectContent>
                         <SelectItem value="16">16-bit/44.1kHz</SelectItem>
                         <SelectItem value="24">24-bit/48kHz - 192kHz</SelectItem>
+                        <SelectItem value="atmos">Dolby Atmos</SelectItem>
                       </SelectContent>
                     </Select>)}
                 </div>
@@ -668,7 +688,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                     <TidalIcon />
                     {tempSettings.customTidalApi ? "Change Instance" : "Add Instance"}
                   </Button>
-                  {tempSettings.customTidalApi && (<span className="max-w-[260px] truncate text-xs text-muted-foreground" title={tempSettings.customTidalApi}>
+                  {tempSettings.customTidalApi && (<span className="max-w-65 truncate text-xs text-muted-foreground" title={tempSettings.customTidalApi}>
                       {tempSettings.customTidalApi}
                     </span>)}
                 </div>
@@ -681,7 +701,7 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                     <QobuzIcon />
                     {tempSettings.customQobuzApi ? "Change Instance" : "Add Instance"}
                   </Button>
-                  {tempSettings.customQobuzApi && (<span className="max-w-[260px] truncate text-xs text-muted-foreground" title={tempSettings.customQobuzApi}>
+                  {tempSettings.customQobuzApi && (<span className="max-w-65 truncate text-xs text-muted-foreground" title={tempSettings.customQobuzApi}>
                       {tempSettings.customQobuzApi}
                     </span>)}
                 </div>
@@ -689,79 +709,31 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
             </div>
           </div>)}
 
+        {activeTab === "naming" && (() => {
+            const separateToggle = (<div className="flex items-center gap-2">
+              <Label htmlFor="separate-album-filename" className="text-sm cursor-pointer font-normal">Separate Filename</Label>
+              <Switch id="separate-album-filename" checked={tempSettings.useSeparateAlbumFilename} onCheckedChange={(checked) => setTempSettings((prev) => ({ ...prev, useSeparateAlbumFilename: checked }))}/>
+            </div>);
+            const folderSingleTrackToggle = (<div className="flex items-center gap-2">
+              <Label htmlFor="apply-folder-single-track" className="text-sm cursor-pointer font-normal">Single Track</Label>
+              <Switch id="apply-folder-single-track" checked={tempSettings.applyFolderToSingleTrack} onCheckedChange={(checked) => setTempSettings((prev) => ({ ...prev, applyFolderToSingleTrack: checked }))}/>
+            </div>);
+            return (<div className="space-y-6">
+              <FormatEditor tokens={TEMPLATE_VARIABLES} fields={[
+                    ...(tempSettings.useSeparateAlbumFilename ? [
+                        { title: "Filename — Single Track", titleAccessory: separateToggle, value: tempSettings.filenameTemplate, defaultValue: DEFAULT_SETTINGS.filenameTemplate, suffix: ".flac", placeholder: "{artist} - {title}", column: "left" as const, onChange: (next: string) => setTempSettings((prev) => ({ ...prev, filenameTemplate: next })) },
+                        { title: "Filename — Album / Playlist Track", value: tempSettings.albumFilenameTemplate, defaultValue: DEFAULT_SETTINGS.albumFilenameTemplate, suffix: ".flac", placeholder: "{track}. {title}", column: "left" as const, onChange: (next: string) => setTempSettings((prev) => ({ ...prev, albumFilenameTemplate: next })) },
+                    ] : [
+                        { title: "Filename", titleAccessory: separateToggle, value: tempSettings.filenameTemplate, defaultValue: DEFAULT_SETTINGS.filenameTemplate, suffix: ".flac", placeholder: "{track}. {artist} - {title}", column: "left" as const, onChange: (next: string) => setTempSettings((prev) => ({ ...prev, filenameTemplate: next })) },
+                    ]),
+                    { title: "Folder Structure", titleAccessory: folderSingleTrackToggle, value: tempSettings.folderTemplate, defaultValue: DEFAULT_SETTINGS.folderTemplate, suffix: "/", placeholder: "{album_artist}/{album}", column: "right" as const, onChange: (next: string) => setTempSettings((prev) => ({ ...prev, folderTemplate: next })) },
+                ]}/>
+            </div>);
+        })()}
+
         {activeTab === "files" && (<div className="grid grid-cols-1 lg:grid-cols-2 lg:gap-8 items-start">
             <div className="space-y-4 lg:pr-8 lg:border-r">
-              <div className="space-y-2">
-                <Label htmlFor="download-path">Download Path</Label>
-                <div className="flex gap-2">
-                  <InputWithContext id="download-path" value={tempSettings.downloadPath} onChange={(e) => setTempSettings((prev) => ({
-                ...prev,
-                downloadPath: e.target.value,
-            }))} placeholder="C:\Users\YourUsername\Music"/>
-                  <Button type="button" onClick={handleBrowseFolder} className="gap-1.5">
-                    <FolderOpen className="h-4 w-4"/>
-                    Browse
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm">Folder Structure</Label>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help"/>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p className="text-xs whitespace-nowrap">
-                        Variables:{" "}
-                        {TEMPLATE_VARIABLES.map((v) => v.key).join(", ")}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <div className="flex gap-2">
-                  <Select value={tempSettings.folderPreset} onValueChange={(value: FolderPreset) => {
-                const preset = FOLDER_PRESETS[value];
-                setTempSettings((prev) => ({
-                    ...prev,
-                    folderPreset: value,
-                    folderTemplate: value === "custom"
-                        ? prev.folderTemplate || preset.template
-                        : preset.template,
-                }));
-            }}>
-                    <SelectTrigger className="h-9 w-fit">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(FOLDER_PRESETS).map(([key, { label }]) => (<SelectItem key={key} value={key}>
-                            {label}
-                          </SelectItem>))}
-                    </SelectContent>
-                  </Select>
-                  {tempSettings.folderPreset === "custom" && (<InputWithContext value={tempSettings.folderTemplate} onChange={(e) => setTempSettings((prev) => ({
-                    ...prev,
-                    folderTemplate: e.target.value,
-                }))} placeholder="{artist}/{album}" className="h-9 text-sm flex-1"/>)}
-                </div>
-                {tempSettings.folderTemplate && (<p className="text-xs text-muted-foreground">
-                    Preview:{" "}
-                    <span className="font-mono">
-                      {tempSettings.folderTemplate
-                    .replace(/\{artist\}/g, tempSettings.separator === "comma" ? "Kendrick Lamar, SZA" : "Kendrick Lamar; SZA")
-                    .replace(/\{album\}/g, "Black Panther")
-                    .replace(/\{album_artist\}/g, "Kendrick Lamar")
-                    .replace(/\{title\}/g, "All The Stars")
-                    .replace(/\{track\}/g, "01")
-                    .replace(/\{disc\}/g, "1")
-                    .replace(/\{year\}/g, "2018")
-                    .replace(/\{date\}/g, "2018-02-09")
-                    .replace(/\{isrc\}/g, "USUM71801234")}
-                      /
-                    </span>
-                  </p>)}
-              </div>
+              <h3 className="text-sm font-semibold text-muted-foreground">File Output</h3>
 
               <div className="flex items-center gap-3">
                 <Switch id="create-playlist-folder" checked={tempSettings.createPlaylistFolder} onCheckedChange={(checked) => setTempSettings((prev) => ({
@@ -773,28 +745,26 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                 </Label>
               </div>
 
-              <div className="flex items-center gap-3">
+              {tempSettings.createPlaylistFolder && (<div className="flex items-center gap-3 pl-7">
                 <Switch id="playlist-owner-folder-name" checked={tempSettings.playlistOwnerFolderName} onCheckedChange={(checked) => setTempSettings((prev) => ({
-                ...prev,
-                playlistOwnerFolderName: checked,
-            }))}/>
+                    ...prev,
+                    playlistOwnerFolderName: checked,
+                }))}/>
                 <Label htmlFor="playlist-owner-folder-name" className="text-sm cursor-pointer font-normal">
                   Playlist Owner Folder Name
                 </Label>
-              </div>
+              </div>)}
 
               <div className="flex items-center gap-3">
-                <Switch id="create-m3u8-file" checked={tempSettings.createM3u8File} onCheckedChange={(checked) => setTempSettings((prev) => ({
+                <Switch id="save-cover" checked={tempSettings.saveCover} onCheckedChange={(checked) => setTempSettings((prev) => ({
                 ...prev,
-                createM3u8File: checked,
+                saveCover: checked,
             }))}/>
-                <Label htmlFor="create-m3u8-file" className="text-sm cursor-pointer font-normal">
-                  Create M3U8 Playlist File
+                <Label htmlFor="save-cover" className="text-sm cursor-pointer font-normal">
+                  Auto Download Separate Cover
                 </Label>
               </div>
-            </div>
 
-            <div className="space-y-4 lg:pl-0">
               <div className="space-y-2">
                 <Label htmlFor="existing-file-check-mode">Existing File Check</Label>
                 <Select value={tempSettings.existingFileCheckMode} onValueChange={(value: ExistingFileCheckMode) => setTempSettings((prev) => ({
@@ -811,80 +781,6 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm">Filename Format</Label>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help"/>
-                    </TooltipTrigger>
-                    <TooltipContent side="top">
-                      <p className="text-xs whitespace-nowrap">
-                        Variables:{" "}
-                        {TEMPLATE_VARIABLES.map((v) => v.key).join(", ")}
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <div className="flex gap-2">
-                  <Select value={tempSettings.filenamePreset} onValueChange={(value: FilenamePreset) => {
-                const preset = FILENAME_PRESETS[value];
-                setTempSettings((prev) => ({
-                    ...prev,
-                    filenamePreset: value,
-                    filenameTemplate: value === "custom"
-                        ? prev.filenameTemplate || preset.template
-                        : preset.template,
-                }));
-            }}>
-                    <SelectTrigger className="h-9 w-fit">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(FILENAME_PRESETS).map(([key, { label }]) => (<SelectItem key={key} value={key}>
-                            {label}
-                          </SelectItem>))}
-                    </SelectContent>
-                  </Select>
-                  {tempSettings.filenamePreset === "custom" && (<InputWithContext value={tempSettings.filenameTemplate} onChange={(e) => setTempSettings((prev) => ({
-                    ...prev,
-                    filenameTemplate: e.target.value,
-                }))} placeholder="{track}. {title}" className="h-9 text-sm flex-1"/>)}
-                </div>
-                {tempSettings.filenameTemplate && (<p className="text-xs text-muted-foreground">
-                    Preview:{" "}
-                    <span className="font-mono">
-                      {tempSettings.filenameTemplate
-                    .replace(/\{artist\}/g, tempSettings.separator === "comma" ? "Kendrick Lamar, SZA" : "Kendrick Lamar; SZA")
-                    .replace(/\{album_artist\}/g, "Kendrick Lamar")
-                    .replace(/\{album\}/g, "Black Panther")
-                    .replace(/\{title\}/g, "All The Stars")
-                    .replace(/\{track\}/g, "01")
-                    .replace(/\{disc\}/g, "1")
-                    .replace(/\{year\}/g, "2018")
-                    .replace(/\{date\}/g, "2018-02-09")
-                    .replace(/\{isrc\}/g, "USUM71801234")}
-                    .flac
-                  </span>
-                </p>)}
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-sm">Separator</Label>
-                <Select value={tempSettings.separator} onValueChange={(value: "comma" | "semicolon") => setTempSettings((prev) => ({
-                ...prev,
-                separator: value,
-            }))}>
-                  <SelectTrigger className="h-9 w-fit">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="comma">Comma (,)</SelectItem>
-                    <SelectItem value="semicolon">Semicolon (;)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
               <div className="flex items-center gap-3">
                 <Switch id="redownload-with-suffix" checked={tempSettings.redownloadWithSuffix} onCheckedChange={(checked) => setTempSettings((prev) => ({
                 ...prev,
@@ -892,6 +788,30 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
             }))}/>
                 <Label htmlFor="redownload-with-suffix" className="text-sm cursor-pointer font-normal">
                   Redownload With Suffix
+                </Label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <Switch id="export-logs-file" checked={tempSettings.exportLogsFile} onCheckedChange={(checked) => setTempSettings((prev) => ({
+                ...prev,
+                exportLogsFile: checked,
+            }))}/>
+                <Label htmlFor="export-logs-file" className="text-sm cursor-pointer font-normal">
+                  Generate Failed Logs
+                </Label>
+              </div>
+            </div>
+
+            <div className="space-y-4 lg:pl-0">
+              <h3 className="text-sm font-semibold text-muted-foreground">M3U8 Playlist</h3>
+
+              <div className="flex items-center gap-3">
+                <Switch id="create-m3u8-file" checked={tempSettings.createM3u8File} onCheckedChange={(checked) => setTempSettings((prev) => ({
+                ...prev,
+                createM3u8File: checked,
+            }))}/>
+                <Label htmlFor="create-m3u8-file" className="text-sm cursor-pointer font-normal">
+                  Create M3U8 Playlist File
                 </Label>
               </div>
             </div>
@@ -950,6 +870,22 @@ export function SettingsPage({ onUnsavedChangesChange, onResetRequest, }: Settin
                   Use First Artist Only
                 </Label>
               </div>
+
+              {!tempSettings.useFirstArtistOnly && (<div className="space-y-2">
+                <Label className="text-sm">Artist Separator</Label>
+                <Select value={tempSettings.separator} onValueChange={(value: "comma" | "semicolon") => setTempSettings((prev) => ({
+                    ...prev,
+                    separator: value,
+                }))}>
+                  <SelectTrigger className="h-9 w-fit">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="comma">Comma (,)</SelectItem>
+                    <SelectItem value="semicolon">Semicolon (;)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>)}
             </div>
           </div>)}
 

@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { downloadLyrics } from "@/lib/api";
-import { getSettings, parseTemplate, type TemplateData } from "@/lib/settings";
+import { getSettings, parseTemplate, templateUsesAlbumTrackNumber, getAlbumCategoryLabel, type TemplateData } from "@/lib/settings";
 import { toastWithSound as toast } from "@/lib/toast-with-sound";
 import { joinPath, sanitizePath, getFirstArtist } from "@/lib/utils";
 import { logger } from "@/lib/logger";
@@ -55,6 +55,7 @@ export function useLyrics() {
             const resolvedTemplateISRC = await resolveTemplateISRC(settings, spotifyId);
             const templateData: TemplateData = {
                 artist: displayArtist?.replace(/\//g, placeholder),
+                artists: artistName?.replace(/\//g, placeholder),
                 album: albumName?.replace(/\//g, placeholder),
                 album_artist: displayAlbumArtist?.replace(/\//g, placeholder) || displayArtist?.replace(/\//g, placeholder),
                 title: trackName?.replace(/\//g, placeholder),
@@ -69,7 +70,7 @@ export function useLyrics() {
             if (settings.createPlaylistFolder && playlistName && (!isAlbum || !useAlbumSubfolder)) {
                 outputDir = joinPath(os, outputDir, sanitizePath(playlistName.replace(/\//g, " "), os));
             }
-            if (settings.folderTemplate) {
+            if (settings.folderTemplate && (isAlbum || settings.applyFolderToSingleTrack)) {
                 const folderPath = parseTemplate(settings.folderTemplate, templateData);
                 if (folderPath) {
                     const parts = folderPath.split("/").filter((p: string) => p.trim());
@@ -79,17 +80,19 @@ export function useLyrics() {
                     }
                 }
             }
-            const useAlbumTrackNumber = settings.folderTemplate?.includes("{album}") || false;
+            const useAlbumTrackNumber = templateUsesAlbumTrackNumber(settings);
             const response = await downloadLyrics({
                 spotify_id: spotifyId,
                 track_name: trackName,
                 artist_name: displayArtist,
+                artists: artistName,
                 album_name: albumName,
                 album_artist: displayAlbumArtist,
                 release_date: releaseDate,
                 isrc: resolvedTemplateISRC || undefined,
                 output_dir: outputDir,
                 filename_format: settings.filenameTemplate || "{title}",
+                playlist_name: playlistName || "",
                 track_number: settings.trackNumber,
                 position: position || 0,
                 use_album_track_number: useAlbumTrackNumber,
@@ -151,7 +154,7 @@ export function useLyrics() {
                 const os = settings.operatingSystem;
                 let outputDir = settings.downloadPath;
                 const placeholder = "__SLASH_PLACEHOLDER__";
-                const useAlbumTrackNumber = settings.folderTemplate?.includes("{album}") || false;
+                const useAlbumTrackNumber = templateUsesAlbumTrackNumber(settings);
                 const trackPosition = useAlbumTrackNumber ? (track.track_number || i + 1) : (i + 1);
                 const yearValue = track.release_date?.substring(0, 4);
                 const displayArtist = settings.useFirstArtistOnly && track.artists ? getFirstArtist(track.artists) : track.artists;
@@ -159,6 +162,7 @@ export function useLyrics() {
                 const resolvedTemplateISRC = await resolveTemplateISRC(settings, id);
                 const templateData: TemplateData = {
                     artist: displayArtist?.replace(/\//g, placeholder),
+                    artists: track.artists?.replace(/\//g, placeholder),
                     album: track.album_name?.replace(/\//g, placeholder),
                     album_artist: displayAlbumArtist?.replace(/\//g, placeholder) || displayArtist?.replace(/\//g, placeholder),
                     title: track.name?.replace(/\//g, placeholder),
@@ -173,7 +177,7 @@ export function useLyrics() {
                 if (settings.createPlaylistFolder && playlistName && (!isAlbum || !useAlbumSubfolder)) {
                     outputDir = joinPath(os, outputDir, sanitizePath(playlistName.replace(/\//g, " "), os));
                 }
-                if (settings.folderTemplate) {
+                if (settings.folderTemplate && (isAlbum || settings.applyFolderToSingleTrack)) {
                     const folderPath = parseTemplate(settings.folderTemplate, templateData);
                     if (folderPath) {
                         const parts = folderPath.split("/").filter((p: string) => p.trim());
@@ -187,16 +191,22 @@ export function useLyrics() {
                     spotify_id: id,
                     track_name: track.name,
                     artist_name: displayArtist,
+                    artists: track.artists,
                     album_name: track.album_name,
                     album_artist: displayAlbumArtist,
                     release_date: track.release_date,
                     isrc: resolvedTemplateISRC || undefined,
                     output_dir: outputDir,
                     filename_format: settings.filenameTemplate || "{title}",
+                    playlist_name: playlistName || "",
+                    category: getAlbumCategoryLabel(track.album_type),
+                    upc: track.upc || "",
                     track_number: settings.trackNumber,
                     position: trackPosition,
                     use_album_track_number: useAlbumTrackNumber,
                     disc_number: track.disc_number,
+                    total_tracks: track.total_tracks,
+                    total_discs: track.total_discs,
                 });
                 if (response.success) {
                     if (response.already_exists) {

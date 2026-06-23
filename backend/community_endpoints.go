@@ -4,7 +4,9 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -109,6 +111,23 @@ const communityRateLimitMaxRetries = 6
 
 const communityRateLimitFallbackWait = 30 * time.Second
 
+const communityCooldownFallbackMessage = "The server is taking a scheduled short break. Please try again in about %d minute(s)."
+
+type communityCooldownError struct {
+	service string
+	seconds int
+	message string
+}
+
+func (e *communityCooldownError) Error() string {
+	return e.message
+}
+
+func IsCommunityCooldownError(err error) bool {
+	_, ok := err.(*communityCooldownError)
+	return ok
+}
+
 func GetTidalCommunityDownloadURL() string {
 	base, _ := decryptCommunityURL(tidalCommunityURLNonce, tidalCommunityURLCiphertext, tidalCommunityURLTag)
 	return base + communityDownloadPath
@@ -117,6 +136,11 @@ func GetTidalCommunityDownloadURL() string {
 func GetQobuzCommunityDownloadURL() string {
 	base, _ := decryptCommunityURL(qobuzCommunityURLNonce, qobuzCommunityURLCiphertext, qobuzCommunityURLTag)
 	return base + communityDownloadPath
+}
+
+func GetQobuzCommunityHealthURL() string {
+	base, _ := decryptCommunityURL(qobuzCommunityURLNonce, qobuzCommunityURLCiphertext, qobuzCommunityURLTag)
+	return base + "/health"
 }
 
 func GetAmazonCommunityDownloadURL() string {
@@ -143,6 +167,39 @@ func communityRetryAfter(resp *http.Response) time.Duration {
 	return communityRateLimitFallbackWait
 }
 
+func newCommunityCooldownError(service string, resp *http.Response) *communityCooldownError {
+	seconds := 0
+	message := ""
+	if resp != nil {
+		if ra := strings.TrimSpace(resp.Header.Get("Retry-After")); ra != "" {
+			if secs, err := strconv.Atoi(ra); err == nil && secs > 0 {
+				seconds = secs
+			}
+		}
+		if body, err := io.ReadAll(io.LimitReader(resp.Body, 4096)); err == nil {
+			var parsed struct {
+				Error string `json:"error"`
+			}
+			if json.Unmarshal(body, &parsed) == nil {
+				message = strings.TrimSpace(parsed.Error)
+			}
+		}
+		resp.Body.Close()
+	}
+
+	if seconds <= 0 {
+		seconds = int(communityRateLimitFallbackWait / time.Second)
+	}
+	if message == "" {
+		message = fmt.Sprintf(communityCooldownFallbackMessage, max(1, (seconds+59)/60))
+	}
+
+	SetCommunityCooldown(float64(seconds), message)
+	fmt.Printf("%s community API on scheduled cooldown (503), back in ~%ds\n", service, seconds)
+
+	return &communityCooldownError{service: service, seconds: seconds, message: message}
+}
+
 func doCommunityRequest(client *http.Client, service string, reqFn func() (*http.Request, error)) (*http.Response, error) {
 	var lastErr error
 	for attempt := 0; attempt <= communityRateLimitMaxRetries; attempt++ {
@@ -156,19 +213,33 @@ func doCommunityRequest(client *http.Client, service string, reqFn func() (*http
 			return nil, err
 		}
 
-		if resp.StatusCode != http.StatusTooManyRequests {
+		if resp.StatusCode == http.StatusServiceUnavailable {
 			ClearRateLimitCooldown()
+			return nil, newCommunityCooldownError(service, resp)
+		}
+
+		if resp.StatusCode != http.StatusTooManyRequests &&
+			resp.StatusCode != http.StatusBadGateway &&
+			resp.StatusCode != http.StatusGatewayTimeout {
+			ClearRateLimitCooldown()
+			ClearCommunityCooldown()
 			return resp, nil
 		}
 
-		wait := communityRetryAfter(resp)
+		var wait time.Duration
+		if resp.StatusCode == http.StatusTooManyRequests {
+			wait = communityRetryAfter(resp)
+			lastErr = fmt.Errorf("%s community API rate limited (429)", service)
+		} else {
+			wait = time.Duration(attempt+1) * 5 * time.Second
+			lastErr = fmt.Errorf("%s community API returned %d", service, resp.StatusCode)
+		}
 		resp.Body.Close()
-		lastErr = fmt.Errorf("%s community API rate limited (429)", service)
 
 		if attempt == communityRateLimitMaxRetries {
 			break
 		}
-		fmt.Printf("%s rate limited, waiting %.0fs before retry (%d/%d)...\n", service, wait.Seconds(), attempt+1, communityRateLimitMaxRetries)
+		fmt.Printf("%s transient error, waiting %.0fs before retry (%d/%d)...\n", service, wait.Seconds(), attempt+1, communityRateLimitMaxRetries)
 		SetRateLimitCooldown(wait.Seconds())
 		if sleepErr := SleepWithDownloadContext(wait); sleepErr != nil {
 			ClearRateLimitCooldown()

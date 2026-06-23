@@ -10,6 +10,30 @@ import (
 	"unicode/utf8"
 )
 
+func ApplyExtraFilenameTokens(template, artists string, totalTracks, totalDiscs int) string {
+	template = strings.ReplaceAll(template, "{track_number}", "{track}")
+	template = strings.ReplaceAll(template, "{disc_number}", "{disc}")
+	template = strings.ReplaceAll(template, "{artists}", SanitizeOptionalFilename(artists))
+	if totalTracks > 0 {
+		template = strings.ReplaceAll(template, "{total_tracks}", fmt.Sprintf("%d", totalTracks))
+	} else {
+		template = strings.ReplaceAll(template, "{total_tracks}", "")
+	}
+	if totalDiscs > 0 {
+		template = strings.ReplaceAll(template, "{total_discs}", fmt.Sprintf("%d", totalDiscs))
+	} else {
+		template = strings.ReplaceAll(template, "{total_discs}", "")
+	}
+	return template
+}
+
+func ApplyFilenameContextTokens(template, category, playlist, creator, upc string) string {
+	template = strings.ReplaceAll(template, "{category}", SanitizeOptionalFilename(category))
+	template = strings.ReplaceAll(template, "{creator}", SanitizeOptionalFilename(creator))
+	template = strings.ReplaceAll(template, "{upc}", SanitizeOptionalFilename(upc))
+	return template
+}
+
 func buildFormattedFilenameBase(trackName, artistName, albumName, albumArtist, releaseDate, filenameFormat, playlistName, playlistOwner, isrc string, includeTrackNumber bool, position, discNumber int, useAlbumTrackNumber bool) string {
 	safeTitle := SanitizeFilename(trackName)
 	safeArtist := SanitizeFilename(artistName)

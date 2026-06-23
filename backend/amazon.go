@@ -15,8 +15,9 @@ import (
 )
 
 type AmazonDownloader struct {
-	client  *http.Client
-	regions []string
+	client    *http.Client
+	regions   []string
+	SourceURL string
 }
 
 func NewAmazonDownloader() *AmazonDownloader {
@@ -176,7 +177,8 @@ func (a *AmazonDownloader) downloadFromCommunity(amazonURL, outputDir, quality s
 	}
 
 	targetExt := ".flac"
-	if codec := strings.ToLower(strings.TrimSpace(apiResp.Codec)); codec == "eac3" || codec == "ec-3" || codec == "ac-3" {
+	codec := strings.ToLower(strings.TrimSpace(apiResp.Codec))
+	if amazonCommunityNormalizeQuality(quality) == "atmos" || codec == "eac3" || codec == "ec-3" || codec == "ac-3" {
 		targetExt = ".m4a"
 	}
 	finalPath := filepath.Join(outputDir, asin+targetExt)
@@ -302,6 +304,7 @@ func (a *AmazonDownloader) DownloadByURL(amazonURL, outputDir, quality, filename
 	}
 
 	fmt.Printf("Using Amazon URL: %s\n", amazonURL)
+	a.SourceURL = amazonURL
 
 	filePath, err := a.DownloadFromService(amazonURL, outputDir, quality)
 	if err != nil {

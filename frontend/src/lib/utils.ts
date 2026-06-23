@@ -5,12 +5,9 @@ import type { Settings } from "./settings";
 export function cn(...inputs: ClassValue[]) {
     return twMerge(clsx(inputs));
 }
-export function sanitizePath(input: string, os: string): string {
+export function sanitizePath(input: string, _os: string): string {
     const sanitized = input.trim();
-    if (os === "Windows") {
-        return sanitized.replace(/[<>:"/\\|?*]/g, "_");
-    }
-    return sanitized.replace(/\//g, "_");
+    return sanitized.replace(/[<>:"/\\|?*]/g, "_");
 }
 export function joinPath(os: string, ...parts: string[]): string {
     const sep = os === "Windows" ? "\\" : "/";
@@ -49,7 +46,7 @@ export function openExternal(url: string) {
 export function getFirstArtist(artistString: string): string {
     if (!artistString)
         return artistString;
-    const delimiters = /[,&]|(?:\s+(?:feat\.?|ft\.?|featuring)\s+)/i;
+    const delimiters = /\s*;\s*|\s+\/\s+|[,&]|\s+(?:feat\.?|ft\.?|featuring)\s+/i;
     const parts = artistString.split(delimiters);
     return parts[0].trim();
 }

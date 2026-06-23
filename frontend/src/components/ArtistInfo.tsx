@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Download, FolderOpen, ImageDown, FileText, BadgeCheck, XCircle, Filter } from "lucide-react";
+import { Download, FolderOpen, ImageDown, FileText, BadgeCheck, XCircle, Filter, CloudDownload, CheckCheck } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SearchAndSort } from "./SearchAndSort";
@@ -73,6 +73,7 @@ interface ArtistInfoProps {
     onSortChange: (value: string) => void;
     onToggleTrack: (id: string) => void;
     onToggleSelectAll: (tracks: TrackMetadata[]) => void;
+    onSelectTrackRange?: (ids: string[], select: boolean) => void;
     onDownloadTrack: (id: string, name: string, artists: string, albumName: string, spotifyId?: string, folderName?: string, durationMs?: number, position?: number, albumArtist?: string, releaseDate?: string, coverUrl?: string, spotifyTrackNumber?: number, spotifyDiscNumber?: number, spotifyTotalTracks?: number, spotifyTotalDiscs?: number, copyright?: string, publisher?: string) => void;
     onDownloadLyrics?: (spotifyId: string, name: string, artists: string, albumName: string, folderName?: string, isArtistDiscography?: boolean, position?: number, albumArtist?: string, releaseDate?: string, discNumber?: number) => void;
     onDownloadCover?: (coverUrl: string, trackName: string, artistName: string, albumName: string, folderName?: string, isArtistDiscography?: boolean, position?: number, trackId?: string, albumArtist?: string, releaseDate?: string, discNumber?: number) => void;
@@ -97,13 +98,14 @@ interface ArtistInfoProps {
     onTrackClick?: (track: TrackMetadata) => void;
     onBack?: () => void;
 }
-export function ArtistInfo({ artistInfo, albumList, trackList, searchQuery, sortBy, selectedTracks, downloadedTracks, failedTracks, skippedTracks, downloadingTrack, isDownloading, bulkDownloadType, downloadProgress, downloadRemainingCount, currentDownloadInfo, currentPage, itemsPerPage, downloadedLyrics, failedLyrics, skippedLyrics, downloadingLyricsTrack, checkingAvailabilityTrack, availabilityMap, downloadedCovers, failedCovers, skippedCovers, downloadingCoverTrack, isBulkDownloadingCovers, isBulkDownloadingLyrics, isMetadataLoading = false, onSearchChange, onSortChange, onToggleTrack, onToggleSelectAll, onDownloadTrack, onDownloadLyrics, onDownloadCover, onCheckAvailability, onDownloadAllLyrics, onDownloadAllCovers, onDownloadAll, onDownloadSelected, onStopDownload, onOpenFolder, onAlbumClick, onArtistClick, onPageChange, onTrackClick, onBack, }: ArtistInfoProps) {
+export function ArtistInfo({ artistInfo, albumList, trackList, searchQuery, sortBy, selectedTracks, downloadedTracks, failedTracks, skippedTracks, downloadingTrack, isDownloading, bulkDownloadType, downloadProgress, downloadRemainingCount, currentDownloadInfo, currentPage, itemsPerPage, downloadedLyrics, failedLyrics, skippedLyrics, downloadingLyricsTrack, checkingAvailabilityTrack, availabilityMap, downloadedCovers, failedCovers, skippedCovers, downloadingCoverTrack, isBulkDownloadingCovers, isBulkDownloadingLyrics, isMetadataLoading = false, onSearchChange, onSortChange, onToggleTrack, onToggleSelectAll, onSelectTrackRange, onDownloadTrack, onDownloadLyrics, onDownloadCover, onCheckAvailability, onDownloadAllLyrics, onDownloadAllCovers, onDownloadAll, onDownloadSelected, onStopDownload, onOpenFolder, onAlbumClick, onArtistClick, onPageChange, onTrackClick, onBack, }: ArtistInfoProps) {
     const [downloadingHeader, setDownloadingHeader] = useState(false);
     const [downloadingAvatar, setDownloadingAvatar] = useState(false);
     const [downloadingGalleryIndex, setDownloadingGalleryIndex] = useState<number | null>(null);
     const [downloadingAllGallery, setDownloadingAllGallery] = useState(false);
     const [activeTab, setActiveTab] = useState<"albums" | "tracks" | "gallery">("albums");
     const [activeAlbumFilter, setActiveAlbumFilter] = useState<string>("all");
+    const [lastAlbumIndex, setLastAlbumIndex] = useState<number | null>(null);
     const displayedAlbumCount = artistInfo.total_albums || albumList.length;
     const fetchedAlbumCount = albumList.length;
     const totalAlbumCount = artistInfo.total_albums || fetchedAlbumCount;
@@ -139,22 +141,32 @@ export function ArtistInfo({ artistInfo, albumList, trackList, searchQuery, sort
         }
         return (albumList || []).filter((album) => (album.album_type || "").trim().toLowerCase() === activeAlbumFilter);
     }, [albumList, activeAlbumFilter]);
+    const discographyTracks = useMemo(() => {
+        const albumIds = new Set(filteredAlbums.map((album) => album.id));
+        return (trackList || []).filter((track) => track.album_id && albumIds.has(track.album_id));
+    }, [filteredAlbums, trackList]);
+    const discographyTracksWithId = useMemo(() => discographyTracks.filter((track) => track.spotify_id), [discographyTracks]);
+    const allDiscographySelected = discographyTracksWithId.length > 0 &&
+        discographyTracksWithId.every((track) => selectedTracks.includes(track.spotify_id!));
     const filteredAlbumGroups = useMemo(() => {
-        const albumTypeMap = new Map(albumList.map(a => [a.name, a.album_type]));
+        const albumTypeMap = new Map(albumList.map(a => [a.id, a.album_type]));
         const albumGroups = trackList.reduce((acc, track) => {
-            if (!track.album_name)
+            const key = track.album_id || track.album_name;
+            if (!key)
                 return acc;
-            if (!acc[track.album_name]) {
-                acc[track.album_name] = {
+            if (!acc[key]) {
+                acc[key] = {
+                    name: track.album_name,
                     count: 0,
                     tracks: [],
-                    type: albumTypeMap.get(track.album_name) || "unknown"
+                    type: (track.album_id && albumTypeMap.get(track.album_id)) || "unknown"
                 };
             }
-            acc[track.album_name].count++;
-            acc[track.album_name].tracks.push(track);
+            acc[key].count++;
+            acc[key].tracks.push(track);
             return acc;
         }, {} as Record<string, {
+            name: string;
             count: number;
             tracks: TrackMetadata[];
             type: string;
@@ -500,6 +512,10 @@ export function ArtistInfo({ artistInfo, albumList, trackList, searchQuery, sort
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h3 className="text-2xl font-bold">Discography</h3>
             <div className="flex gap-2">
+                {discographyTracksWithId.length > 0 && (<Button onClick={() => onToggleSelectAll(discographyTracks)} size="sm" variant="outline">
+                    <CheckCheck className="h-4 w-4"/>
+                    {allDiscographySelected ? "Deselect All" : "Select All"}
+                </Button>)}
                 <Button onClick={onDownloadAll} size="sm" disabled={isDownloading}>
                     {isDownloading && bulkDownloadType === "all" ? (<Spinner />) : (<Download className="h-4 w-4"/>)}
                     Download Discography
@@ -516,21 +532,58 @@ export function ArtistInfo({ artistInfo, albumList, trackList, searchQuery, sort
                 </Button>))}
             </div>)}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {filteredAlbums.map((album) => {
-                const albumTracks = trackList.filter(t => t.album_name === album.name);
+            {filteredAlbums.map((album, albumIndex) => {
+                const albumTracks = trackList.filter(t => t.album_id === album.id);
                 const tracksWithId = albumTracks.filter(t => t.spotify_id);
                 const isSelected = tracksWithId.length > 0 && tracksWithId.every(t => selectedTracks.includes(t.spotify_id!));
                 const hasTracks = tracksWithId.length > 0;
-                return (<div key={album.id} className="group cursor-pointer relative" onClick={() => onAlbumClick({
-                        id: album.id,
-                        name: album.name,
-                        external_urls: album.external_urls,
-                    })}>
+                const handleFetch = () => onAlbumClick({
+                    id: album.id,
+                    name: album.name,
+                    external_urls: album.external_urls,
+                });
+                const handleSelectClick = (event: React.MouseEvent) => {
+                    if (!hasTracks)
+                        return;
+                    if (event.shiftKey && lastAlbumIndex !== null && onSelectTrackRange) {
+                        const start = Math.min(lastAlbumIndex, albumIndex);
+                        const end = Math.max(lastAlbumIndex, albumIndex);
+                        const rangeIds = filteredAlbums
+                            .slice(start, end + 1)
+                            .flatMap(a => trackList.filter(t => t.album_id === a.id))
+                            .map(t => t.spotify_id)
+                            .filter((id): id is string => Boolean(id));
+                        const select = !rangeIds.every(id => selectedTracks.includes(id));
+                        onSelectTrackRange(rangeIds, select);
+                    }
+                    else {
+                        onToggleSelectAll(albumTracks);
+                        setLastAlbumIndex(albumIndex);
+                    }
+                };
+                return (<div key={album.id} className="group cursor-pointer relative" onClick={handleSelectClick} onKeyDown={(event) => {
+                        if (event.key !== "Enter" && event.key !== " ") {
+                            return;
+                        }
+                        event.preventDefault();
+                        handleFetch();
+                    }} role="button" tabIndex={0} aria-label={`Select album ${album.name}`}>
                 <div className="relative mb-2">
-                  
-                  {hasTracks && (<div className={`absolute top-2 left-2 z-20 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`} onClick={(e) => e.stopPropagation()}>
-                        <Checkbox checked={isSelected} onCheckedChange={() => onToggleSelectAll(albumTracks)} className="bg-black/50 border-white/70 data-[state=checked]:bg-primary data-[state=checked]:border-primary"/>
+                  {hasTracks && (<div className={`absolute top-2 left-2 z-20 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                        <Checkbox checked={isSelected} onCheckedChange={() => onToggleSelectAll(albumTracks)} onClick={(e) => e.stopPropagation()} className="bg-black/50 border-white/70 data-[state=checked]:bg-primary data-[state=checked]:border-primary"/>
                     </div>)}
+                  <div className="absolute top-2 right-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button size="icon" variant="secondary" className="h-7 w-7 bg-black/50 hover:bg-black/70 text-white border-white/20" onClick={(event) => { event.stopPropagation(); handleFetch(); }}>
+                          <CloudDownload className="h-4 w-4"/>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Fetch Album</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                   {album.images && (<img src={album.images} alt={album.name} className="w-full aspect-square object-cover rounded-md shadow-md transition-shadow group-hover:shadow-xl"/>)}
                   <div className="absolute bottom-2 right-2">
                     <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-black/60 text-white backdrop-blur-[2px]">
@@ -574,14 +627,14 @@ export function ArtistInfo({ artistInfo, albumList, trackList, searchQuery, sort
                       </DialogHeader>
                       <ScrollArea className="flex-1 pr-4">
                           <div className="space-y-4">
-                              {filteredAlbumGroups.map(([albumName, data]) => {
+                              {filteredAlbumGroups.map(([albumKey, data]) => {
                 const tracksWithId = data.tracks.filter(t => t.spotify_id);
                 const isSelected = tracksWithId.length > 0 && tracksWithId.every(t => selectedTracks.includes(t.spotify_id!));
-                return (<div key={albumName} className="flex items-start space-x-3 p-2 hover:bg-muted/50 rounded-md transition-colors">
-                                          <Checkbox id={`album-select-${albumName}`} checked={isSelected} onCheckedChange={() => onToggleSelectAll(data.tracks)} className="mt-1"/>
+                return (<div key={albumKey} className="flex items-start space-x-3 p-2 hover:bg-muted/50 rounded-md transition-colors">
+                                          <Checkbox id={`album-select-${albumKey}`} checked={isSelected} onCheckedChange={() => onToggleSelectAll(data.tracks)} className="mt-1"/>
                                           <div className="grid gap-1.5 leading-none flex-1">
-                                              <label htmlFor={`album-select-${albumName}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
-                                                  {albumName}
+                                              <label htmlFor={`album-select-${albumKey}`} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                                                  {data.name}
                                               </label>
                                               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                                   <span className="capitalize bg-muted px-1.5 py-0.5 rounded text-[10px] font-semibold border">
@@ -641,7 +694,7 @@ export function ArtistInfo({ artistInfo, albumList, trackList, searchQuery, sort
           </div>
           {isDownloading && (<DownloadProgress progress={downloadProgress} remainingCount={downloadRemainingCount} currentTrack={currentDownloadInfo} onStop={onStopDownload}/>)}
           <SearchAndSort searchQuery={searchQuery} sortBy={sortBy} onSearchChange={onSearchChange} onSortChange={onSortChange}/>
-          <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} selectedTracks={selectedTracks} downloadedTracks={downloadedTracks} failedTracks={failedTracks} skippedTracks={skippedTracks} downloadingTrack={downloadingTrack} isDownloading={isDownloading} currentPage={currentPage} itemsPerPage={itemsPerPage} showCheckboxes={true} hideAlbumColumn={false} folderName={artistInfo.name} isArtistDiscography={true} downloadedLyrics={downloadedLyrics} failedLyrics={failedLyrics} skippedLyrics={skippedLyrics} downloadingLyricsTrack={downloadingLyricsTrack} checkingAvailabilityTrack={checkingAvailabilityTrack} availabilityMap={availabilityMap} onToggleTrack={onToggleTrack} onToggleSelectAll={onToggleSelectAll} onDownloadTrack={onDownloadTrack} onDownloadLyrics={onDownloadLyrics} onDownloadCover={onDownloadCover} downloadedCovers={downloadedCovers} failedCovers={failedCovers} skippedCovers={skippedCovers} downloadingCoverTrack={downloadingCoverTrack} onCheckAvailability={onCheckAvailability} onPageChange={onPageChange} onAlbumClick={onAlbumClick} onArtistClick={onArtistClick} onTrackClick={onTrackClick}/>
+          <TrackList tracks={trackList} searchQuery={searchQuery} sortBy={sortBy} selectedTracks={selectedTracks} downloadedTracks={downloadedTracks} failedTracks={failedTracks} skippedTracks={skippedTracks} downloadingTrack={downloadingTrack} isDownloading={isDownloading} currentPage={currentPage} itemsPerPage={itemsPerPage} showCheckboxes={true} hideAlbumColumn={false} folderName={artistInfo.name} isArtistDiscography={true} downloadedLyrics={downloadedLyrics} failedLyrics={failedLyrics} skippedLyrics={skippedLyrics} downloadingLyricsTrack={downloadingLyricsTrack} checkingAvailabilityTrack={checkingAvailabilityTrack} availabilityMap={availabilityMap} onToggleTrack={onToggleTrack} onToggleSelectAll={onToggleSelectAll} onSelectTrackRange={onSelectTrackRange} onDownloadTrack={onDownloadTrack} onDownloadLyrics={onDownloadLyrics} onDownloadCover={onDownloadCover} downloadedCovers={downloadedCovers} failedCovers={failedCovers} skippedCovers={skippedCovers} downloadingCoverTrack={downloadingCoverTrack} onCheckAvailability={onCheckAvailability} onPageChange={onPageChange} onAlbumClick={onAlbumClick} onArtistClick={onArtistClick} onTrackClick={onTrackClick}/>
         </div>)}
     </div>);
 }

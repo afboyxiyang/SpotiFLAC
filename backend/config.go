@@ -19,14 +19,11 @@ func normalizeCustomTidalAPIValue(value interface{}) string {
 	return ""
 }
 
-func sanitizeDownloaderValue(value interface{}, allowTidal bool) string {
+func sanitizeDownloaderValue(value interface{}) string {
 	downloader, _ := value.(string)
 	switch strings.TrimSpace(strings.ToLower(downloader)) {
 	case "tidal":
-		if allowTidal {
-			return "tidal"
-		}
-		return "auto"
+		return "tidal"
 	case "qobuz":
 		return "qobuz"
 	case "amazon":
@@ -36,17 +33,14 @@ func sanitizeDownloaderValue(value interface{}, allowTidal bool) string {
 	}
 }
 
-func sanitizeAutoOrderValue(value interface{}, allowTidal bool) string {
+func sanitizeAutoOrderValue(value interface{}) string {
 	autoOrder, _ := value.(string)
 	allowed := map[string]struct{}{
+		"tidal":  {},
 		"qobuz":  {},
 		"amazon": {},
 	}
-	fallback := "qobuz-amazon"
-	if allowTidal {
-		allowed["tidal"] = struct{}{}
-		fallback = "tidal-qobuz-amazon"
-	}
+	fallback := "tidal-qobuz-amazon"
 
 	seen := make(map[string]struct{})
 	parts := make([]string, 0, 3)
@@ -84,9 +78,8 @@ func SanitizeSettingsMap(settings map[string]interface{}) map[string]interface{}
 
 	customAPI := normalizeCustomTidalAPIValue(sanitized["customTidalApi"])
 	sanitized["customTidalApi"] = customAPI
-	allowTidal := customAPI != ""
-	sanitized["downloader"] = sanitizeDownloaderValue(sanitized["downloader"], allowTidal)
-	sanitized["autoOrder"] = sanitizeAutoOrderValue(sanitized["autoOrder"], allowTidal)
+	sanitized["downloader"] = sanitizeDownloaderValue(sanitized["downloader"])
+	sanitized["autoOrder"] = sanitizeAutoOrderValue(sanitized["autoOrder"])
 
 	return sanitized
 }
@@ -180,10 +173,13 @@ func LoadConfigSettings() (map[string]interface{}, error) {
 func GetRedownloadWithSuffixSetting() bool {
 	settings, err := LoadConfigSettings()
 	if err != nil || settings == nil {
-		return false
+		return true
 	}
 
-	enabled, _ := settings["redownloadWithSuffix"].(bool)
+	enabled, ok := settings["redownloadWithSuffix"].(bool)
+	if !ok {
+		return true
+	}
 	return enabled
 }
 

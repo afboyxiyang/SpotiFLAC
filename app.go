@@ -48,6 +48,9 @@ type APIStatusReport struct {
 }
 
 const checkOperationTimeout = 10 * time.Second
+const spotiFLACNextStatusURL = "https://gist.githubusercontent.com/afkarxyz/6e57cd362cbd67f889e3a91a76254a5e/raw"
+const spotiFLACCurrentStatusURL = "https://gist.githubusercontent.com/afkarxyz/7e392bc94ec2faaf74ef7d80025636eb/raw"
+const spotiFLACStatusPayloadMaxBytes = 128 * 1024
 
 func NewApp() *App {
 	return &App{}
@@ -90,31 +93,6 @@ func runWithTimeout[T any](timeout time.Duration, fn func() (T, error)) (T, erro
 	}
 }
 
-func containsStreamingURL(body []byte) bool {
-	trimmedBody := strings.TrimSpace(string(body))
-	if trimmedBody == "" {
-		return false
-	}
-
-	var directResp struct {
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(body, &directResp); err == nil && isStreamingURL(directResp.URL) {
-		return true
-	}
-
-	var nestedResp struct {
-		Data struct {
-			URL string `json:"url"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &nestedResp); err == nil && isStreamingURL(nestedResp.Data.URL) {
-		return true
-	}
-
-	return isStreamingURL(trimmedBody)
-}
-
 func containsLRCLIBResults(body []byte) bool {
 	trimmedBody := strings.TrimSpace(string(body))
 	if trimmedBody == "" {
@@ -149,20 +127,6 @@ func containsMusicBrainzResults(body []byte) bool {
 	}
 
 	return payload.Count > 0 || len(payload.Recordings) > 0
-}
-
-func isStreamingURL(raw string) bool {
-	candidate := strings.TrimSpace(raw)
-	if candidate == "" {
-		return false
-	}
-
-	parsed, err := url.Parse(candidate)
-	if err != nil {
-		return false
-	}
-
-	return (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
 func previewResponseBody(body []byte, maxLen int) string {
@@ -302,9 +266,6 @@ func (a *App) startup(ctx context.Context) {
 	if err := backend.InitISRCCacheDB(); err != nil {
 		fmt.Printf("Failed to init ISRC cache DB: %v\n", err)
 	}
-	if err := backend.InitProviderPriorityDB(); err != nil {
-		fmt.Printf("Failed to init provider priority DB: %v\n", err)
-	}
 	if err := backend.CleanupLegacyTidalPublicAPIState(); err != nil {
 		fmt.Printf("Failed to clean legacy Tidal API cache: %v\n", err)
 	}
@@ -316,7 +277,6 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(ctx context.Context) {
 	backend.CloseHistoryDB()
 	backend.CloseISRCCacheDB()
-	backend.CloseProviderPriorityDB()
 }
 
 type SpotifyMetadataRequest struct {
@@ -365,6 +325,10 @@ type DownloadRequest struct {
 	UseSingleGenre       bool   `json:"use_single_genre,omitempty"`
 	EmbedGenre           bool   `json:"embed_genre,omitempty"`
 	Separator            string `json:"separator,omitempty"`
+	SaveCover            bool   `json:"save_cover,omitempty"`
+	Artists              string `json:"artists,omitempty"`
+	Category             string `json:"category,omitempty"`
+	UPC                  string `json:"upc,omitempty"`
 }
 
 type DownloadResponse struct {
@@ -375,6 +339,8 @@ type DownloadResponse struct {
 	AlreadyExists bool   `json:"already_exists,omitempty"`
 	Cancelled     bool   `json:"cancelled,omitempty"`
 	ItemID        string `json:"item_id,omitempty"`
+	SourceURL     string `json:"source_url,omitempty"`
+	SourceLabel   string `json:"source_label,omitempty"`
 }
 
 func cleanupInvalidDownloadArtifacts(paths ...string) {
@@ -535,6 +501,8 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 
 	var err error
 	var filename string
+	var sourceURL string
+	var sourceLabel string
 
 	if req.FilenameFormat == "" {
 		req.FilenameFormat = "title-artist"
@@ -642,6 +610,15 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		}
 	}
 
+	if strings.Contains(req.FilenameFormat, "{") {
+		artistsForTokens := req.Artists
+		if strings.TrimSpace(artistsForTokens) == "" {
+			artistsForTokens = req.ArtistName
+		}
+		req.FilenameFormat = backend.ApplyExtraFilenameTokens(req.FilenameFormat, artistsForTokens, req.SpotifyTotalTracks, req.SpotifyTotalDiscs)
+		req.FilenameFormat = backend.ApplyFilenameContextTokens(req.FilenameFormat, req.Category, req.PlaylistName, req.PlaylistOwner, req.UPC)
+	}
+
 	if req.TrackName != "" && req.ArtistName != "" {
 		expectedFilename := backend.BuildExpectedFilename(req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, req.FilenameFormat, req.PlaylistName, req.PlaylistOwner, req.TrackNumber, req.Position, req.SpotifyDiscNumber, req.UseAlbumTrackNumber, req.ISRC)
 		expectedPath := filepath.Join(req.OutputDir, expectedFilename)
@@ -706,6 +683,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		} else {
 			filename, err = downloader.DownloadBySpotifyID(req.SpotifyID, req.OutputDir, req.AudioFormat, req.FilenameFormat, req.PlaylistName, req.PlaylistOwner, req.TrackNumber, req.Position, req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, req.CoverURL, req.SpotifyTrackNumber, req.SpotifyDiscNumber, req.SpotifyTotalTracks, req.EmbedMaxQualityCover, req.SpotifyTotalDiscs, req.Copyright, req.Publisher, req.Composer, metadataSeparator, req.ISRC, spotifyURL, req.UseFirstArtistOnly, req.UseSingleGenre, req.EmbedGenre)
 		}
+		sourceURL = downloader.SourceURL
 
 	case "tidal":
 		downloader := backend.NewTidalDownloader(req.TidalAPIURL)
@@ -714,6 +692,7 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		} else {
 			filename, err = downloader.Download(req.SpotifyID, req.OutputDir, req.AudioFormat, req.FilenameFormat, req.TrackNumber, req.Position, req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, req.UseAlbumTrackNumber, req.CoverURL, req.EmbedMaxQualityCover, req.SpotifyTrackNumber, req.SpotifyDiscNumber, req.SpotifyTotalTracks, req.SpotifyTotalDiscs, req.Copyright, req.Publisher, req.Composer, metadataSeparator, req.ISRC, spotifyURL, req.AllowFallback, req.UseFirstArtistOnly, req.UseSingleGenre, req.EmbedGenre)
 		}
+		sourceURL = downloader.SourceURL
 
 	case "qobuz":
 
@@ -731,6 +710,8 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 			quality = "6"
 		}
 		filename, err = downloader.DownloadTrackWithISRC(isrc, req.OutputDir, quality, req.FilenameFormat, req.TrackNumber, req.Position, req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, req.UseAlbumTrackNumber, req.CoverURL, req.EmbedMaxQualityCover, req.SpotifyTrackNumber, req.SpotifyDiscNumber, req.SpotifyTotalTracks, req.SpotifyTotalDiscs, req.Copyright, req.Publisher, req.Composer, metadataSeparator, spotifyURL, req.AllowFallback, req.UseFirstArtistOnly, req.UseSingleGenre, req.EmbedGenre)
+		sourceURL = downloader.SourceURL
+		sourceLabel = downloader.SourceLabel
 
 	default:
 		return DownloadResponse{
@@ -843,6 +824,17 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		message = "File already exists"
 		backend.SkipDownloadItem(itemID, filename)
 	} else {
+		if req.SaveCover && req.CoverURL != "" {
+			coverStem := strings.TrimSuffix(filename, filepath.Ext(filename))
+			coverPath := coverStem + ".jpg"
+			coverClient := backend.NewCoverClient()
+			if coverErr := coverClient.DownloadCoverToPath(req.CoverURL, coverPath, req.EmbedMaxQualityCover); coverErr != nil {
+				fmt.Printf("Warning: failed to save cover art: %v\n", coverErr)
+			} else {
+				fmt.Printf("Cover art saved: %s\n", coverPath)
+			}
+		}
+
 		if strings.EqualFold(filepath.Ext(filename), ".flac") && req.CoverURL != "" {
 			coverClient := backend.NewCoverClient()
 			if iconErr := coverClient.ApplyMacOSFLACFileIcon(filename, req.CoverURL, 256, req.EmbedMaxQualityCover); iconErr != nil {
@@ -916,6 +908,8 @@ func (a *App) DownloadTrack(req DownloadRequest) (DownloadResponse, error) {
 		File:          filename,
 		AlreadyExists: alreadyExists,
 		ItemID:        itemID,
+		SourceURL:     sourceURL,
+		SourceLabel:   sourceLabel,
 	}, nil
 }
 
@@ -1121,6 +1115,64 @@ func (a *App) CheckAPIStatusReport(apiType string, apiURL string) APIStatusRepor
 	return report
 }
 
+func fetchSpotiFLACStatusPayload(statusURL string) (map[string]string, error) {
+	parsedURL, err := url.Parse(statusURL)
+	if err != nil {
+		return nil, err
+	}
+	query := parsedURL.Query()
+	query.Set("t", fmt.Sprintf("%d", time.Now().UnixMilli()))
+	parsedURL.RawQuery = query.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, parsedURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
+
+	client := &http.Client{Timeout: checkOperationTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, spotiFLACStatusPayloadMaxBytes))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("SpotiFLAC status returned %d: %s", resp.StatusCode, previewResponseBody(body, 200))
+	}
+
+	var payload map[string]string
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	if payload == nil {
+		return map[string]string{}, nil
+	}
+	return payload, nil
+}
+
+func (a *App) FetchSpotiFLACStatusPayload(kind string) (map[string]string, error) {
+	var statusURL string
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "next":
+		statusURL = spotiFLACNextStatusURL
+	case "current":
+		statusURL = spotiFLACCurrentStatusURL
+	default:
+		return nil, fmt.Errorf("unknown SpotiFLAC status payload: %s", kind)
+	}
+
+	return runWithTimeout(checkOperationTimeout, func() (map[string]string, error) {
+		return fetchSpotiFLACStatusPayload(statusURL)
+	})
+}
 func (a *App) CheckCustomTidalAPI(apiURL string) bool {
 	type tidalProbeResponse struct {
 		Version string `json:"version"`
@@ -1272,7 +1324,7 @@ func buildQobuzStatusCheckURLs(apiURL string) []string {
 		return []string{trimmed}
 	}
 
-	return backend.GetQobuzDownloadProviderURLs()
+	return []string{backend.GetQobuzCommunityHealthURL()}
 }
 
 func buildAmazonStatusCheckURLs(apiURL string) []string {
@@ -1395,27 +1447,6 @@ func describeAPIStatusTarget(apiType string, checkURL string) string {
 	trimmedType := strings.TrimSpace(strings.ToLower(apiType))
 	trimmedURL := strings.TrimSpace(checkURL)
 
-	if trimmedType == "qobuz" || trimmedType == "qbz" {
-		switch {
-		case backend.IsQobuzWJHEProviderURL(trimmedURL):
-			return "WJHE"
-		case backend.IsQobuzMusicDLProviderURL(trimmedURL):
-			return "MusicDL"
-		case backend.IsQobuzGDStudioProviderURL(trimmedURL):
-			parsed, err := url.Parse(trimmedURL)
-			if err == nil {
-				host := strings.ToLower(strings.TrimSpace(parsed.Host))
-				switch {
-				case strings.Contains(host, "xyz"):
-					return "GDStudio XYZ"
-				case strings.Contains(host, "org"):
-					return "GDStudio ORG"
-				}
-			}
-			return "GDStudio"
-		}
-	}
-
 	if trimmedURL != "" {
 		if parsed, err := url.Parse(trimmedURL); err == nil && strings.TrimSpace(parsed.Host) != "" {
 			return strings.TrimSpace(parsed.Host)
@@ -1437,29 +1468,6 @@ func checkSingleAPIStatusDetailed(apiType string, checkURL string) APIStatusTarg
 
 	client := &http.Client{Timeout: 4 * time.Second}
 	trimmedType := strings.TrimSpace(strings.ToLower(apiType))
-
-	if trimmedType == "qobuz" || trimmedType == "qbz" {
-		var err error
-		switch {
-		case backend.IsQobuzWJHEProviderURL(checkURL):
-			err = backend.CheckQobuzWJHEStatusDetailed(client)
-		case backend.IsQobuzMusicDLProviderURL(checkURL):
-			err = backend.CheckQobuzMusicDLStatusDetailed(client)
-		case backend.IsQobuzGDStudioProviderURL(checkURL):
-			err = backend.CheckQobuzGDStudioAPIStatusDetailed(client, checkURL)
-		default:
-			err = fmt.Errorf("unknown qobuz provider url: %s", strings.TrimSpace(checkURL))
-		}
-
-		if err != nil {
-			result.Message = err.Error()
-			return result
-		}
-
-		result.Online = true
-		result.Message = "stream URL resolved"
-		return result
-	}
 
 	req, err := backend.NewRequestWithDefaultHeaders(http.MethodGet, checkURL, nil)
 	if err != nil {
@@ -1506,17 +1514,6 @@ func checkSingleAPIStatusDetailed(apiType string, checkURL string) APIStatusTarg
 
 func checkSingleAPIStatus(apiType string, checkURL string) bool {
 	client := &http.Client{Timeout: 4 * time.Second}
-	if apiType == "qobuz" || apiType == "qbz" {
-		switch {
-		case backend.IsQobuzWJHEProviderURL(checkURL):
-			return backend.CheckQobuzWJHEStatus(client)
-		case backend.IsQobuzMusicDLProviderURL(checkURL):
-			return backend.CheckQobuzMusicDLStatus(client)
-		case backend.IsQobuzGDStudioProviderURL(checkURL):
-			return backend.CheckQobuzGDStudioAPIStatus(client, checkURL)
-		}
-	}
-
 	req, err := backend.NewRequestWithDefaultHeaders(http.MethodGet, checkURL, nil)
 	if err != nil {
 		return false
@@ -1537,8 +1534,6 @@ func checkSingleAPIStatus(apiType string, checkURL string) bool {
 	switch apiType {
 	case "amazon":
 		return statusCode == http.StatusOK && strings.Contains(string(body), `"amazonMusic":"up"`)
-	case "qobuz", "qbz":
-		return statusCode == http.StatusOK && containsStreamingURL(body)
 	case "lrclib":
 		return statusCode == http.StatusOK && containsLRCLIBResults(body)
 	case "musicbrainz":
@@ -2039,6 +2034,24 @@ func (a *App) SelectLyricsFiles() ([]string, error) {
 	return files, nil
 }
 
+func (a *App) SelectLyricsFolder() (string, error) {
+	return backend.SelectLyricsFolder(a.ctx)
+}
+
+func (a *App) ScanLyricsFolder(dir string) ([]string, error) {
+	if dir == "" {
+		return nil, fmt.Errorf("folder path is required")
+	}
+	return backend.ScanLyricsFolder(dir)
+}
+
+func (a *App) SaveLyrics(filePath string, lyrics string) (*backend.SaveLyricsResult, error) {
+	if filePath == "" {
+		return nil, fmt.Errorf("file path is required")
+	}
+	return backend.SaveLyrics(filePath, lyrics)
+}
+
 func (a *App) PreviewRenameFiles(files []string, format string) []backend.RenamePreview {
 	return backend.PreviewRename(files, format)
 }
@@ -2112,12 +2125,17 @@ type CheckFileExistenceRequest struct {
 	SpotifyID           string `json:"spotify_id"`
 	TrackName           string `json:"track_name"`
 	ArtistName          string `json:"artist_name"`
+	Artists             string `json:"artists,omitempty"`
 	AlbumName           string `json:"album_name,omitempty"`
 	AlbumArtist         string `json:"album_artist,omitempty"`
+	Category            string `json:"category,omitempty"`
+	UPC                 string `json:"upc,omitempty"`
 	ReleaseDate         string `json:"release_date,omitempty"`
 	ISRC                string `json:"isrc,omitempty"`
 	TrackNumber         int    `json:"track_number,omitempty"`
 	DiscNumber          int    `json:"disc_number,omitempty"`
+	TotalTracks         int    `json:"total_tracks,omitempty"`
+	TotalDiscs          int    `json:"total_discs,omitempty"`
 	Position            int    `json:"position,omitempty"`
 	UseAlbumTrackNumber bool   `json:"use_album_track_number,omitempty"`
 	FilenameFormat      string `json:"filename_format,omitempty"`
@@ -2246,6 +2264,14 @@ func (a *App) CheckFilesExistence(outputDir string, rootDir string, tracks []Che
 			filenameFormat := t.FilenameFormat
 			if filenameFormat == "" {
 				filenameFormat = defaultFilenameFormat
+			}
+			if strings.Contains(filenameFormat, "{") {
+				artistsForTokens := t.Artists
+				if strings.TrimSpace(artistsForTokens) == "" {
+					artistsForTokens = t.ArtistName
+				}
+				filenameFormat = backend.ApplyExtraFilenameTokens(filenameFormat, artistsForTokens, t.TotalTracks, t.TotalDiscs)
+				filenameFormat = backend.ApplyFilenameContextTokens(filenameFormat, t.Category, "", "", t.UPC)
 			}
 			isrc := strings.TrimSpace(t.ISRC)
 			shouldResolveISRC := existingFileCheckMode == "isrc" || strings.Contains(filenameFormat, "{isrc}")
@@ -2498,6 +2524,37 @@ func (a *App) CreateM3U8File(m3u8Name string, outputDir string, filePaths []stri
 		relPath = filepath.ToSlash(relPath)
 
 		if _, err := f.WriteString(relPath + "\n"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (a *App) CreateLogFile(fileName string, outputDir string, logs []string) error {
+	if len(logs) == 0 {
+		return nil
+	}
+
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
+	}
+
+	safeName := backend.SanitizeFilename(fileName)
+	if safeName == "" {
+		safeName = "download_log"
+	}
+
+	logPath := filepath.Join(outputDir, safeName+".txt")
+
+	f, err := os.Create(logPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	for _, log := range logs {
+		if _, err := f.WriteString(log + "\n"); err != nil {
 			return err
 		}
 	}

@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -41,16 +40,22 @@ type LyricsDownloadRequest struct {
 	SpotifyID           string `json:"spotify_id"`
 	TrackName           string `json:"track_name"`
 	ArtistName          string `json:"artist_name"`
+	Artists             string `json:"artists,omitempty"`
 	AlbumName           string `json:"album_name"`
 	AlbumArtist         string `json:"album_artist"`
 	ReleaseDate         string `json:"release_date"`
 	ISRC                string `json:"isrc"`
 	OutputDir           string `json:"output_dir"`
 	FilenameFormat      string `json:"filename_format"`
+	PlaylistName        string `json:"playlist_name,omitempty"`
+	Category            string `json:"category,omitempty"`
+	UPC                 string `json:"upc,omitempty"`
 	TrackNumber         bool   `json:"track_number"`
 	Position            int    `json:"position"`
 	UseAlbumTrackNumber bool   `json:"use_album_track_number"`
 	DiscNumber          int    `json:"disc_number"`
+	TotalTracks         int    `json:"total_tracks,omitempty"`
+	TotalDiscs          int    `json:"total_discs,omitempty"`
 }
 
 type LyricsDownloadResponse struct {
@@ -364,61 +369,13 @@ func msToLRCTimestamp(msStr string) string {
 	return fmt.Sprintf("[%02d:%02d.%02d]", minutes, seconds, centiseconds)
 }
 
-func buildLyricsFilename(trackName, artistName, albumName, albumArtist, releaseDate, filenameFormat, isrc string, includeTrackNumber bool, position, discNumber int) string {
-	safeTitle := sanitizeFilename(trackName)
-	safeArtist := sanitizeFilename(artistName)
-	safeAlbum := sanitizeFilename(albumName)
-	safeAlbumArtist := sanitizeFilename(albumArtist)
-	safeISRC := SanitizeOptionalFilename(isrc)
-
-	year := ""
-	if len(releaseDate) >= 4 {
-		year = releaseDate[:4]
-	}
-
-	var filename string
-
+func buildLyricsFilename(trackName, artistName, albumName, albumArtist, releaseDate, filenameFormat, isrc, playlistName, category, upc, artists string, includeTrackNumber bool, position, discNumber, totalTracks, totalDiscs int, useAlbumTrackNumber bool) string {
 	if strings.Contains(filenameFormat, "{") {
-		filename = filenameFormat
-		filename = strings.ReplaceAll(filename, "{title}", safeTitle)
-		filename = strings.ReplaceAll(filename, "{artist}", safeArtist)
-		filename = strings.ReplaceAll(filename, "{album}", safeAlbum)
-		filename = strings.ReplaceAll(filename, "{album_artist}", safeAlbumArtist)
-		filename = strings.ReplaceAll(filename, "{year}", year)
-		filename = strings.ReplaceAll(filename, "{date}", sanitizeFilename(releaseDate))
-		filename = strings.ReplaceAll(filename, "{isrc}", safeISRC)
-
-		if discNumber > 0 {
-			filename = strings.ReplaceAll(filename, "{disc}", fmt.Sprintf("%d", discNumber))
-		} else {
-			filename = strings.ReplaceAll(filename, "{disc}", "")
-		}
-
-		if position > 0 {
-			filename = strings.ReplaceAll(filename, "{track}", fmt.Sprintf("%02d", position))
-		} else {
-
-			filename = regexp.MustCompile(`\{track\}\.\s*`).ReplaceAllString(filename, "")
-			filename = regexp.MustCompile(`\{track\}\s*-\s*`).ReplaceAllString(filename, "")
-			filename = regexp.MustCompile(`\{track\}\s*`).ReplaceAllString(filename, "")
-		}
-	} else {
-
-		switch filenameFormat {
-		case "artist-title":
-			filename = fmt.Sprintf("%s - %s", safeArtist, safeTitle)
-		case "title":
-			filename = safeTitle
-		default:
-			filename = fmt.Sprintf("%s - %s", safeTitle, safeArtist)
-		}
-
-		if includeTrackNumber && position > 0 {
-			filename = fmt.Sprintf("%02d. %s", position, filename)
-		}
+		filenameFormat = ApplyExtraFilenameTokens(filenameFormat, artists, totalTracks, totalDiscs)
+		filenameFormat = ApplyFilenameContextTokens(filenameFormat, category, playlistName, "", upc)
 	}
-
-	return filename + ".lrc"
+	base := buildFormattedFilenameBase(trackName, artistName, albumName, albumArtist, releaseDate, filenameFormat, playlistName, "", isrc, includeTrackNumber, position, discNumber, useAlbumTrackNumber)
+	return base + ".lrc"
 }
 
 func findAudioFileForLyrics(dir, trackName, artistName string) string {
@@ -492,7 +449,7 @@ func (c *LyricsClient) DownloadLyrics(req LyricsDownloadRequest) (*LyricsDownloa
 	if resolvedISRC == "" && strings.Contains(filenameFormat, "{isrc}") {
 		resolvedISRC = ResolveTrackISRC(req.SpotifyID)
 	}
-	filename := buildLyricsFilename(req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, filenameFormat, resolvedISRC, req.TrackNumber, req.Position, req.DiscNumber)
+	filename := buildLyricsFilename(req.TrackName, req.ArtistName, req.AlbumName, req.AlbumArtist, req.ReleaseDate, filenameFormat, resolvedISRC, req.PlaylistName, req.Category, req.UPC, req.Artists, req.TrackNumber, req.Position, req.DiscNumber, req.TotalTracks, req.TotalDiscs, req.UseAlbumTrackNumber)
 	filePath := filepath.Join(outputDir, filename)
 
 	filePath, alreadyExists := ResolveOutputPathForDownload(filePath, GetRedownloadWithSuffixSetting())

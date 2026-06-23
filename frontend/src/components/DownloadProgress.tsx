@@ -13,6 +13,9 @@ interface DownloadProgressProps {
 }
 export function DownloadProgress({ progress, remainingCount = 0, currentTrack, onStop }: DownloadProgressProps) {
     const liveProgress = useDownloadProgress();
+    const isCooldown = Boolean(liveProgress.cooldown) && (liveProgress.cooldown_secs ?? 0) > 0;
+    const cooldownSecs = liveProgress.cooldown_secs ?? 0;
+    const cooldownMessage = liveProgress.cooldown_message ?? "";
     const isRateLimited = Boolean(liveProgress.rate_limited) && (liveProgress.rate_limit_secs ?? 0) > 0;
     const rateLimitSecs = liveProgress.rate_limit_secs ?? 0;
     const clampedProgress = Math.min(100, Math.max(0, progress));
@@ -26,7 +29,10 @@ export function DownloadProgress({ progress, remainingCount = 0, currentTrack, o
           Stop
         </Button>
       </div>
-      {isRateLimited ? (<p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+      {isCooldown ? (<p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <Clock className="h-3.5 w-3.5 shrink-0"/>
+          {cooldownMessage || "The server is taking a scheduled short break."} (back in {cooldownSecs}s)
+        </p>) : isRateLimited ? (<p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
           <Clock className="h-3.5 w-3.5 shrink-0"/>
           Rate limited, please wait. Retrying in {rateLimitSecs}s...
         </p>) : (<p className="text-xs text-muted-foreground">

@@ -1,4 +1,5 @@
 import { GetDefaults, LoadFonts as LoadFontsFromBackend, LoadSettings, SaveFonts as SaveFontsToBackend, SaveSettings as SaveToBackend, } from "../../wailsjs/go/main/App";
+import { getFirstArtist } from "./utils";
 export type BuiltInFontFamily = "google-sans" | "inter" | "poppins" | "roboto" | "dm-sans" | "plus-jakarta-sans" | "manrope" | "space-grotesk" | "noto-sans" | "nunito-sans" | "figtree" | "raleway" | "public-sans" | "outfit" | "jetbrains-mono" | "geist-sans" | "bricolage-grotesque";
 export type CustomFontFamily = `custom-${string}`;
 export type FontFamily = BuiltInFontFamily | CustomFontFamily;
@@ -30,8 +31,11 @@ export interface Settings {
     customFonts: CustomFontOption[];
     folderPreset: FolderPreset;
     folderTemplate: string;
+    applyFolderToSingleTrack: boolean;
     filenamePreset: FilenamePreset;
     filenameTemplate: string;
+    albumFilenameTemplate: string;
+    useSeparateAlbumFilename: boolean;
     filenameFormat?: "title-artist" | "artist-title" | "title";
     artistSubfolder?: boolean;
     albumSubfolder?: boolean;
@@ -42,13 +46,16 @@ export interface Settings {
     operatingSystem: "Windows" | "linux/MacOS";
     tidalQuality: "LOSSLESS" | "HI_RES_LOSSLESS";
     qobuzQuality: "6" | "7" | "27";
-    amazonQuality: "16" | "24";
+    amazonQuality: "16" | "24" | "atmos";
     autoOrder: "tidal-qobuz-amazon" | "tidal-amazon-qobuz" | "qobuz-tidal-amazon" | "qobuz-amazon-tidal" | "amazon-tidal-qobuz" | "amazon-qobuz-tidal" | string;
     autoQuality: "16" | "24";
     allowFallback: boolean;
     createPlaylistFolder: boolean;
     playlistOwnerFolderName: boolean;
     createM3u8File: boolean;
+    saveCover: boolean;
+    exportLogsFile: boolean;
+    exportLogsOnlyFailed: boolean;
     previewVolume: number;
     existingFileCheckMode: ExistingFileCheckMode;
     useFirstArtistOnly: boolean;
@@ -134,28 +141,44 @@ export const FILENAME_PRESETS: Record<FilenamePreset, {
     },
     custom: { label: "Custom...", template: "{title} - {artist}" },
 };
-export const TEMPLATE_VARIABLES = [
-    { key: "{title}", description: "Track title", example: "Shake It Off" },
-    { key: "{artist}", description: "Track artist", example: "Taylor Swift" },
-    { key: "{album}", description: "Album name", example: "1989" },
-    {
-        key: "{album_artist}",
-        description: "Album artist",
-        example: "Taylor Swift",
-    },
-    { key: "{track}", description: "Track number", example: "01" },
+export interface TemplateToken {
+    key: string;
+    description: string;
+    example: string;
+}
+export const SAMPLE_TEMPLATE_DATA: TemplateData = {
+    title: "Golden",
+    artist: "HUNTR/X",
+    artists: "HUNTR/X / EJAE / AUDREY NUNA / REI AMI / KPop Demon Hunters Cast",
+    album: "KPop Demon Hunters (Soundtrack from the Netflix Film)",
+    album_artist: "KPop Demon Hunters Cast / HUNTR/X / Saja Boys",
+    category: "Albums",
+    track: 4,
+    total_tracks: 12,
+    disc: 1,
+    total_discs: 1,
+    year: "2025",
+    date: "2025-06-20",
+    isrc: "QZ8BZ2513510",
+    upc: "00602478398346",
+    playlist: "My Playlist",
+};
+export const TEMPLATE_VARIABLES: TemplateToken[] = [
+    { key: "{title}", description: "Track title", example: "Golden" },
+    { key: "{artist}", description: "Primary artist", example: "HUNTR/X" },
+    { key: "{artists}", description: "All performers", example: "HUNTR/X / EJAE / AUDREY NUNA / REI AMI / KPop Demon Hunters Cast" },
+    { key: "{album}", description: "Album name", example: "KPop Demon Hunters (Soundtrack from the Netflix Film)" },
+    { key: "{album_artist}", description: "Album artist", example: "KPop Demon Hunters Cast / HUNTR/X / Saja Boys" },
+    { key: "{track}", description: "Track number", example: "04" },
+    { key: "{total_tracks}", description: "Total tracks in album", example: "12" },
     { key: "{disc}", description: "Disc number", example: "1" },
-    { key: "{year}", description: "Release year", example: "2014" },
-    {
-        key: "{date}",
-        description: "Release date (YYYY-MM-DD)",
-        example: "2014-10-27",
-    },
-    {
-        key: "{isrc}",
-        description: "Track ISRC",
-        example: "USUM71412345",
-    },
+    { key: "{total_discs}", description: "Total discs in album", example: "1" },
+    { key: "{year}", description: "Release year", example: "2025" },
+    { key: "{date}", description: "Release date (YYYY-MM-DD)", example: "2025-06-20" },
+    { key: "{isrc}", description: "Track ISRC", example: "QZ8BZ2513510" },
+    { key: "{upc}", description: "Album UPC / barcode", example: "00602478398346" },
+    { key: "{category}", description: "Release category", example: "Albums" },
+    { key: "{playlist}", description: "Playlist name", example: "My Playlist" },
 ];
 function detectOS(): "Windows" | "linux/MacOS" {
     const platform = window.navigator.platform.toLowerCase();
@@ -176,9 +199,12 @@ export const DEFAULT_SETTINGS: Settings = {
     fontFamily: "google-sans",
     customFonts: [],
     folderPreset: "none",
-    folderTemplate: "",
+    folderTemplate: "{album_artist}/{album}",
+    applyFolderToSingleTrack: false,
     filenamePreset: "title-artist",
-    filenameTemplate: "{title} - {artist}",
+    filenameTemplate: "{artist} - {title}",
+    albumFilenameTemplate: "{track}. {title}",
+    useSeparateAlbumFilename: false,
     trackNumber: false,
     sfxEnabled: true,
     embedLyrics: false,
@@ -193,12 +219,15 @@ export const DEFAULT_SETTINGS: Settings = {
     createPlaylistFolder: true,
     playlistOwnerFolderName: false,
     createM3u8File: false,
+    saveCover: false,
+    exportLogsFile: true,
+    exportLogsOnlyFailed: false,
     previewVolume: 100,
     existingFileCheckMode: "filename",
     useFirstArtistOnly: false,
     useSingleGenre: false,
     embedGenre: false,
-    redownloadWithSuffix: false,
+    redownloadWithSuffix: true,
     separator: "semicolon",
 };
 export const FONT_OPTIONS: FontOption[] = [
@@ -614,7 +643,7 @@ function normalizeSettingsPayload(settings: SettingsPayload): SettingsPayload {
     if (!("amazonQuality" in normalized)) {
         normalized.amazonQuality = "16";
     }
-    if (normalized.amazonQuality !== "16" && normalized.amazonQuality !== "24") {
+    if (normalized.amazonQuality !== "16" && normalized.amazonQuality !== "24" && normalized.amazonQuality !== "atmos") {
         normalized.amazonQuality = "16";
     }
     if (!("autoOrder" in normalized)) {
@@ -750,12 +779,17 @@ export async function loadSettings(): Promise<Settings> {
 }
 export interface TemplateData {
     artist?: string;
+    artists?: string;
     album?: string;
     album_artist?: string;
+    category?: string;
     title?: string;
     isrc?: string;
+    upc?: string;
     track?: number;
+    total_tracks?: number;
     disc?: number;
+    total_discs?: number;
     year?: string;
     date?: string;
     playlist?: string;
@@ -765,17 +799,57 @@ export function parseTemplate(template: string, data: TemplateData): string {
         return "";
     }
     let result = template;
+    result = result.replace(/\{track_number\}/g, "{track}");
+    result = result.replace(/\{disc_number\}/g, "{disc}");
     result = result.replace(/\{title\}/g, data.title || "Unknown Title");
-    result = result.replace(/\{artist\}/g, data.artist || "Unknown Artist");
+    result = result.replace(/\{artists\}/g, data.artists || data.artist || "Unknown Artist");
+    result = result.replace(/\{artist\}/g, getFirstArtist(data.artist || "") || "Unknown Artist");
+    result = result.replace(/\{album_artist\}/g, getFirstArtist(data.album_artist || data.artist || "") || "Unknown Artist");
     result = result.replace(/\{album\}/g, data.album || "Unknown Album");
-    result = result.replace(/\{album_artist\}/g, data.album_artist || data.artist || "Unknown Artist");
+    result = result.replace(/\{category\}/g, data.category || "");
     result = result.replace(/\{isrc\}/g, data.isrc || "");
+    result = result.replace(/\{upc\}/g, data.upc || "");
     result = result.replace(/\{track\}/g, data.track ? String(data.track).padStart(2, "0") : "00");
+    result = result.replace(/\{total_tracks\}/g, data.total_tracks ? String(data.total_tracks) : "");
     result = result.replace(/\{disc\}/g, data.disc ? String(data.disc) : "1");
+    result = result.replace(/\{total_discs\}/g, data.total_discs ? String(data.total_discs) : "");
     result = result.replace(/\{year\}/g, data.year || "0000");
     result = result.replace(/\{date\}/g, data.date || "0000-00-00");
     result = result.replace(/\{playlist\}/g, data.playlist || "");
     return result;
+}
+export function getAlbumCategoryLabel(albumType?: string): string {
+    switch ((albumType || "").trim().toLowerCase()) {
+        case "album":
+            return "Albums";
+        case "live":
+            return "Live Albums";
+        case "compilation":
+            return "Compilations";
+        case "single":
+        case "ep":
+        case "epsingle":
+        case "appears_on":
+            return "Singles & EPs";
+        case "other":
+            return "Other Releases";
+        default:
+            return "";
+    }
+}
+export function getEffectiveAlbumFilenameTemplate(settings: Pick<Settings, "filenameTemplate" | "albumFilenameTemplate" | "useSeparateAlbumFilename">): string {
+    return settings.useSeparateAlbumFilename ? settings.albumFilenameTemplate : settings.filenameTemplate;
+}
+export function templateUsesAlbumTrackNumber(templates: {
+    folderTemplate?: string;
+    filenameTemplate?: string;
+    albumFilenameTemplate?: string;
+    useSeparateAlbumFilename?: boolean;
+}): boolean {
+    const folderTemplate = templates.folderTemplate || "";
+    const filenameTemplate = templates.filenameTemplate || "";
+    const albumFilenameTemplate = templates.useSeparateAlbumFilename ? (templates.albumFilenameTemplate || "") : "";
+    return ["{album}", "{album_artist}"].some((token) => folderTemplate.includes(token) || filenameTemplate.includes(token) || albumFilenameTemplate.includes(token));
 }
 export async function getSettingsWithDefaults(): Promise<Settings> {
     const settings = await loadSettings();

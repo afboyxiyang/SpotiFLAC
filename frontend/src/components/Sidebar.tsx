@@ -110,7 +110,7 @@ export function Sidebar({ currentPage, onPageChange }: SidebarProps) {
                             <p>Tools</p>
                         </TooltipContent>
                     </Tooltip>
-                    <DropdownMenuContent side="right" sideOffset={14} className="min-w-[200px] ml-2">
+                    <DropdownMenuContent side="right" sideOffset={14} className="min-w-50 ml-2">
                         <DropdownMenuItem onClick={() => onPageChange("audio-analysis")} className="gap-3 cursor-pointer py-2 px-3" {...getAnimatedItemHandlers(analyzerIconRef)}>
                             <ActivityIcon ref={analyzerIconRef} size={16}/>
                             <span>Audio Quality Analyzer</span>

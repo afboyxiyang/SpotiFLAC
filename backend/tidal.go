@@ -20,6 +20,7 @@ type TidalDownloader struct {
 	timeout    time.Duration
 	maxRetries int
 	apiURL     string
+	SourceURL  string
 }
 
 type TidalAPIResponse struct {
@@ -551,6 +552,7 @@ func (t *TidalDownloader) DownloadFromManifest(manifestB64, outputPath string, q
 
 func (t *TidalDownloader) DownloadByURL(tidalURL, outputDir, quality, filenameFormat string, includeTrackNumber bool, position int, spotifyTrackName, spotifyArtistName, spotifyAlbumName, spotifyAlbumArtist, spotifyReleaseDate string, useAlbumTrackNumber bool, spotifyCoverURL string, embedMaxQualityCover bool, spotifyTrackNumber, spotifyDiscNumber, spotifyTotalTracks int, spotifyTotalDiscs int, spotifyCopyright, spotifyPublisher, spotifyComposer, metadataSeparator, isrcOverride, spotifyURL string, allowFallback bool, useFirstArtistOnly bool, useSingleGenre bool, embedGenre bool) (string, error) {
 	fmt.Printf("Using Tidal URL: %s\n", tidalURL)
+	t.SourceURL = tidalURL
 
 	trackID, err := t.GetTrackIDFromURL(tidalURL)
 	if err != nil {

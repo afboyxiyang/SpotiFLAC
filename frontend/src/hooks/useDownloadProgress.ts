@@ -6,6 +6,10 @@ export interface DownloadProgressInfo {
     speed_mbps: number;
     rate_limited?: boolean;
     rate_limit_secs?: number;
+    cooldown?: boolean;
+    cooldown_secs?: number;
+    cooldown_message?: string;
+    cooldown_event_id?: number;
 }
 export function useDownloadProgress() {
     const [progress, setProgress] = useState<DownloadProgressInfo>({
@@ -14,6 +18,9 @@ export function useDownloadProgress() {
         speed_mbps: 0,
         rate_limited: false,
         rate_limit_secs: 0,
+        cooldown: false,
+        cooldown_secs: 0,
+        cooldown_message: "",
     });
     const intervalRef = useRef<number | null>(null);
     useEffect(() => {

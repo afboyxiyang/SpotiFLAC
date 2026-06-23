@@ -44,6 +44,11 @@ var (
 	rateLimitUntilMs int64
 	rateLimitLock    sync.RWMutex
 
+	cooldownUntilMs int64
+	cooldownMessage string
+	cooldownEventID int64
+	cooldownLock    sync.RWMutex
+
 	downloadQueue       []DownloadItem
 	downloadQueueLock   sync.RWMutex
 	currentItemID       string
@@ -55,11 +60,15 @@ var (
 )
 
 type ProgressInfo struct {
-	IsDownloading bool    `json:"is_downloading"`
-	MBDownloaded  float64 `json:"mb_downloaded"`
-	SpeedMBps     float64 `json:"speed_mbps"`
-	RateLimited   bool    `json:"rate_limited"`
-	RateLimitSecs int     `json:"rate_limit_secs"`
+	IsDownloading   bool    `json:"is_downloading"`
+	MBDownloaded    float64 `json:"mb_downloaded"`
+	SpeedMBps       float64 `json:"speed_mbps"`
+	RateLimited     bool    `json:"rate_limited"`
+	RateLimitSecs   int     `json:"rate_limit_secs"`
+	Cooldown        bool    `json:"cooldown"`
+	CooldownSecs    int     `json:"cooldown_secs"`
+	CooldownMessage string  `json:"cooldown_message"`
+	CooldownEventID int64   `json:"cooldown_event_id"`
 }
 
 type DownloadQueueInfo struct {
@@ -101,12 +110,34 @@ func GetDownloadProgress() ProgressInfo {
 		}
 	}
 
+	cooldownLock.RLock()
+	cdUntilMs := cooldownUntilMs
+	cdMessage := cooldownMessage
+	cdEventID := cooldownEventID
+	cooldownLock.RUnlock()
+
+	cooldown := false
+	cooldownSecs := 0
+	if cdUntilMs > 0 {
+		remainingMs := cdUntilMs - getCurrentTimeMillis()
+		if remainingMs > 0 {
+			cooldown = true
+			cooldownSecs = int((remainingMs + 999) / 1000)
+		} else {
+			cdMessage = ""
+		}
+	}
+
 	return ProgressInfo{
-		IsDownloading: downloading,
-		MBDownloaded:  progress,
-		SpeedMBps:     speed,
-		RateLimited:   rateLimited,
-		RateLimitSecs: rateLimitSecs,
+		IsDownloading:   downloading,
+		MBDownloaded:    progress,
+		SpeedMBps:       speed,
+		RateLimited:     rateLimited,
+		RateLimitSecs:   rateLimitSecs,
+		Cooldown:        cooldown,
+		CooldownSecs:    cooldownSecs,
+		CooldownMessage: cdMessage,
+		CooldownEventID: cdEventID,
 	}
 }
 
@@ -124,6 +155,26 @@ func ClearRateLimitCooldown() {
 	rateLimitLock.Lock()
 	rateLimitUntilMs = 0
 	rateLimitLock.Unlock()
+}
+
+func SetCommunityCooldown(seconds float64, message string) {
+	cooldownLock.Lock()
+	if seconds <= 0 {
+		cooldownUntilMs = 0
+		cooldownMessage = ""
+	} else {
+		cooldownUntilMs = getCurrentTimeMillis() + int64(seconds*1000)
+		cooldownMessage = message
+		cooldownEventID++
+	}
+	cooldownLock.Unlock()
+}
+
+func ClearCommunityCooldown() {
+	cooldownLock.Lock()
+	cooldownUntilMs = 0
+	cooldownMessage = ""
+	cooldownLock.Unlock()
 }
 
 func SetDownloadSpeed(mbps float64) {

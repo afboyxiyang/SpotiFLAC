@@ -12,6 +12,7 @@ require (
 	github.com/ulikunitz/xz v0.5.15
 	github.com/wailsapp/wails/v2 v2.12.0
 	go.etcd.io/bbolt v1.4.3
+	go.senan.xyz/taglib v0.11.1
 	golang.org/x/image v0.12.0
 	golang.org/x/text v0.31.0
 )
@@ -37,6 +38,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/samber/lo v1.52.0 // indirect
+	github.com/tetratelabs/wazero v1.10.1 // indirect
 	github.com/tkrajina/go-reflector v0.5.8 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect

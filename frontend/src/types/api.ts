@@ -147,6 +147,10 @@ export interface DownloadRequest {
     use_first_artist_only?: boolean;
     use_single_genre?: boolean;
     embed_genre?: boolean;
+    save_cover?: boolean;
+    artists?: string;
+    category?: string;
+    upc?: string;
 }
 export interface DownloadResponse {
     success: boolean;
@@ -156,6 +160,8 @@ export interface DownloadResponse {
     already_exists?: boolean;
     cancelled?: boolean;
     item_id?: string;
+    source_url?: string;
+    source_label?: string;
 }
 export interface HealthResponse {
     status: string;
@@ -201,16 +207,22 @@ export interface LyricsDownloadRequest {
     spotify_id: string;
     track_name: string;
     artist_name: string;
+    artists?: string;
     album_name?: string;
     album_artist?: string;
     release_date?: string;
     isrc?: string;
     output_dir?: string;
     filename_format?: string;
+    playlist_name?: string;
+    category?: string;
+    upc?: string;
     track_number?: boolean;
     position?: number;
     use_album_track_number?: boolean;
     disc_number?: number;
+    total_tracks?: number;
+    total_discs?: number;
 }
 export interface LyricsDownloadResponse {
     success: boolean;
@@ -232,14 +244,22 @@ export interface CoverDownloadRequest {
     cover_url: string;
     track_name: string;
     artist_name: string;
+    artists?: string;
     album_name?: string;
     album_artist?: string;
     release_date?: string;
     output_dir?: string;
     filename_format?: string;
+    playlist_name?: string;
+    category?: string;
+    upc?: string;
+    isrc?: string;
     track_number?: boolean;
     position?: number;
     disc_number?: number;
+    total_tracks?: number;
+    total_discs?: number;
+    use_album_track_number?: boolean;
 }
 export interface CoverDownloadResponse {
     success: boolean;

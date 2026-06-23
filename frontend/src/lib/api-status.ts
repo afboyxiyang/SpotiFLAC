@@ -25,11 +25,11 @@ export const SPOTIFLAC_NEXT_SOURCES: SpotiFLACNextSource[] = [
     { id: "deezer", name: "Deezer", statusPrefix: "deezer_" },
     { id: "apple", name: "Apple Music", statusKey: "apple" },
 ];
-const SPOTIFLAC_STATUS_URL = "https://gist.githubusercontent.com/afkarxyz/6e57cd362cbd67f889e3a91a76254a5e/raw";
-const SPOTIFLAC_CURRENT_STATUS_URL = "https://gist.githubusercontent.com/afkarxyz/7e392bc94ec2faaf74ef7d80025636eb/raw";
+type SpotiFLACStatusPayloadKind = "next" | "current";
 const SPOTIFLAC_STATUS_MAX_ATTEMPTS = 3;
 const SPOTIFLAC_STATUS_RETRY_DELAY_MS = 1200;
 const LogStatusConsole = (level: string, message: string): Promise<void> => (window as any)["go"]["main"]["App"]["LogStatusConsole"](level, message);
+const FetchSpotiFLACStatusPayload = (kind: SpotiFLACStatusPayloadKind): Promise<SpotiFLACNextStatusResponse> => (window as any)["go"]["main"]["App"]["FetchSpotiFLACStatusPayload"](kind);
 type ApiStatusState = {
     checkingSources: Record<string, boolean>;
     statuses: Record<string, ApiCheckStatus>;
@@ -107,24 +107,15 @@ function hasSpotiFLACNextResults(): boolean {
         return status === "online" || status === "offline";
     });
 }
-async function fetchStatusPayloadOnce(url: string): Promise<SpotiFLACNextStatusResponse> {
-    const response = await withTimeout(fetch(url, {
-        method: "GET",
-        cache: "no-store",
-        headers: {
-            Accept: "application/json",
-        },
-    }), CHECK_TIMEOUT_MS, "SpotiFLAC status check timed out after 10 seconds");
-    if (!response.ok) {
-        throw new Error(`SpotiFLAC status returned ${response.status}`);
-    }
-    return (await response.json()) as SpotiFLACNextStatusResponse;
+async function fetchStatusPayloadOnce(kind: SpotiFLACStatusPayloadKind): Promise<SpotiFLACNextStatusResponse> {
+    const payload = await withTimeout(FetchSpotiFLACStatusPayload(kind), CHECK_TIMEOUT_MS, "SpotiFLAC status check timed out after 10 seconds");
+    return payload && typeof payload === "object" ? payload : {};
 }
-async function fetchStatusPayloadWithRetry(url: string): Promise<SpotiFLACNextStatusResponse> {
+async function fetchStatusPayloadWithRetry(kind: SpotiFLACStatusPayloadKind): Promise<SpotiFLACNextStatusResponse> {
     let lastError: unknown = null;
     for (let attempt = 1; attempt <= SPOTIFLAC_STATUS_MAX_ATTEMPTS; attempt++) {
         try {
-            return await fetchStatusPayloadOnce(url);
+            return await fetchStatusPayloadOnce(kind);
         }
         catch (error) {
             lastError = error;
@@ -139,7 +130,7 @@ async function fetchSpotiFLACStatusPayload(): Promise<SpotiFLACNextStatusRespons
     if (activeStatusPayloadFetch) {
         return activeStatusPayloadFetch;
     }
-    activeStatusPayloadFetch = fetchStatusPayloadWithRetry(SPOTIFLAC_STATUS_URL);
+    activeStatusPayloadFetch = fetchStatusPayloadWithRetry("next");
     try {
         return await activeStatusPayloadFetch;
     }
@@ -151,7 +142,7 @@ async function fetchSpotiFLACCurrentStatusPayload(): Promise<SpotiFLACNextStatus
     if (activeCurrentStatusPayloadFetch) {
         return activeCurrentStatusPayloadFetch;
     }
-    activeCurrentStatusPayloadFetch = fetchStatusPayloadWithRetry(SPOTIFLAC_CURRENT_STATUS_URL);
+    activeCurrentStatusPayloadFetch = fetchStatusPayloadWithRetry("current");
     try {
         return await activeCurrentStatusPayloadFetch;
     }
